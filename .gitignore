@@ -30,10 +30,12 @@ target/
 ### Environment & secrets ###
 .env
 .env.*
+!.env.example
 *.local
 
 ### Private Briefs & Docs ###
-docs/
+docs/PROJECT_BRIEF.md
+
 
 
 ### Logs & OS ###
