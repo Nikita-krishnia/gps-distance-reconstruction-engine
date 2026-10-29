@@ -1,0 +1,43 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbproject/load-resource-prefixes.properties
+
+### VS Code ###
+.vscode/
+
+### Environment & secrets ###
+.env
+.env.*
+*.local
+
+### Private Briefs & Docs ###
+docs/
+
+
+### Logs & OS ###
+*.log
+.DS_Store
+Thumbs.db
+
