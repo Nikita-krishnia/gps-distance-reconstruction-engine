@@ -69,4 +69,12 @@ public final class DomainFactory {
                 tenantId, trip, oldCalc, newCalc, deltaMeters, Instant.now()
         );
     }
+
+    public static AppUser createUser(
+            String tenantId, String username, String passwordHash, Role role,
+            String employeeRef, boolean enabled, Instant createdAt) {
+        return new AppUser(
+                tenantId, username, passwordHash, role, employeeRef, enabled, createdAt
+        );
+    }
 }
