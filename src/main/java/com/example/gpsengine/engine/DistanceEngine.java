@@ -67,6 +67,8 @@ public class DistanceEngine {
         long totalMeters = 0L;
         boolean degraded = false;
         int providerCalls = 0;
+        int cacheHits = 0;
+        int cacheMisses = 0;
 
         for (int i = 0; i < timeline.size() - 1; i++) {
             TripPoint from = timeline.get(i);
@@ -116,7 +118,6 @@ public class DistanceEngine {
             }
             // Rule 4: ROUTED Path
             else {
-                providerCalls++;
                 RouteResult routeResult = null;
                 boolean providerFailed = false;
 
@@ -126,8 +127,22 @@ public class DistanceEngine {
                     } else {
                         providerFailed = true;
                     }
-                } catch (RoutingUnavailableException | RuntimeException e) {
+                } catch (com.example.gpsengine.routing.CircuitOpenException e) {
+                    // Breaker rejected without touching upstream provider; neither providerCall nor cacheHit
                     providerFailed = true;
+                } catch (RoutingUnavailableException | RuntimeException e) {
+                    // Upstream provider attempt occurred and failed
+                    providerCalls++;
+                    providerFailed = true;
+                }
+
+                if (!providerFailed && routeResult != null) {
+                    if (routeResult.source() == com.example.gpsengine.routing.RouteSource.CACHE) {
+                        cacheHits++;
+                    } else {
+                        cacheMisses++;
+                        providerCalls++;
+                    }
                 }
 
                 if (providerFailed || routeResult == null
@@ -195,6 +210,8 @@ public class DistanceEngine {
                 tripStatus,
                 RULE_VERSION,
                 providerCalls,
+                cacheHits,
+                cacheMisses,
                 ruleCounts
         );
     }
