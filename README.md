@@ -44,19 +44,50 @@ Expected output:
 
 ## How to Test
 
-### 1. Engine Tests Only (Fast, Plain Java, No Docker Required)
-The core mathematical, GPS cleaning, anchor merging, and distance calculation engine is framework-free and runs without Docker or Spring context:
+### 1. Engine & Routing Tests (Fast, Plain Java, No Docker Required)
+The core mathematical, GPS cleaning, anchor merging, distance calculation engine, and routing providers run without Docker or Spring context:
 
 ```powershell
+# Engine tests (44 tests)
 .\mvnw.cmd test -Dtest="com.example.gpsengine.engine.*Test"
+
+# Routing tests (20 tests, 1 optional live test skipped by default)
+.\mvnw.cmd test -Dtest="com.example.gpsengine.routing.*Test"
 ```
 
 ### 2. Full Test Suite (Requires Docker Desktop)
-Runs all 50 tests (engine tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
+Runs all 70 tests (engine tests, routing tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
 
 ```powershell
 .\mvnw.cmd test
 ```
+
+## Routing Providers
+
+The system supports pluggable routing implementations chosen at startup via the `routing.provider` property:
+
+1. **`fake` (Default):**
+   - Calculates distance as Haversine straight-line distance multiplied by a configurable `detourFactor` (default `1.3`).
+   - Completely deterministic, in-memory, and provides thread-safe call tracking and optional failure/latency injection.
+   - Used for all automated unit tests, integration tests, and performance benchmarks to ensure reliable, zero-flakiness builds without internet or external server dependencies.
+
+2. **`osrm`:**
+   - Calls an external OSRM-compatible HTTP server using the standard driving route endpoint:
+     `GET {baseUrl}/route/v1/driving/{fromLon},{fromLat};{toLon},{toLat}?overview=false`
+   - **Coordinate Order:** OSRM mandates **longitude first**, then latitude (`{lon},{lat}`). Coordinates are formatted using `Locale.ROOT` with dot decimal separators.
+   - Extracts road distance in meters from `routes[0].distance`.
+   - Maps every network, timeout, HTTP, and JSON payload error into a clean `RoutingUnavailableException` with coordinate-free and secret-free messages.
+   - Restores thread interruption status before throwing on interrupted requests.
+
+### Configuration & Security
+- **Safe Environment Variables:** Do not hardcode URLs or credentials in source code. Configure them in `.env` (kept git-ignored):
+  ```bash
+  OSRM_BASE_URL=http://localhost:5000
+  OSRM_API_KEY=your_optional_api_key
+  ```
+- **Demo Server Limitation:** The public OSRM server (`https://router.project-osrm.org`) is for light demos only. It is heavily rate-limited and must never be used for benchmarks or automated CI pipelines.
+- **Docker Compose Note:** OSRM is intentionally omitted from `compose.yaml` because OSRM requires multi-gigabyte OpenStreetMap extract files and pre-processing graphs.
+- **Production Verification Status:** While the OSRM client has been rigorously tested against local HTTP servers simulating all success, error, timeout, and privacy edge cases, a real OSRM provider has **not** been verified under production-scale traffic conditions.
 
 ## Rounding & Precision Trade-offs
 
@@ -64,18 +95,18 @@ Runs all 50 tests (engine tests, web slice test, and repository integration test
 - **Deterministic Sum:** The trip total distance is the exact mathematical sum of these whole-meter `long` values. This guarantees 100% deterministic, reproducible totals without floating-point accumulation drift or rounding discrepancies across platforms.
 - **Micro-distance Trade-off:** Segments shorter than 0.5 meters (e.g. slight jitter while parked) round down to 0 meters. This minor micro-distance undercounting is an intentional trade-off in favor of audit-proof integer precision.
 
-## Status: Batch 5 (Segment Distance Rules & Distance Engine)
+## Status: Batch 6 (Routing Provider Implementations)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
-| **Plain Java Engine** | Zero Spring/JPA/Web dependencies in `engine` and `routing` packages | `DistanceEngine`, `SegmentConfig`, `DistanceResult`, `SegmentResult`, `RoutingProvider` are pure Java | Matched |
-| **Short Gap Aerial** | Gap < 70s and speed <= 120 km/h: straight-line distance | Evaluated first via Haversine calculation | Matched |
-| **Parked Rule** | Gap >= 70s and speed < 5 km/h: 0m distance | Evaluated second; filters stops, signals, and dwell time | Matched |
-| **Speed Pre-check Optimization** | If straight-line speed > 120 km/h, road distance cannot be valid | Rejects immediately without calling routing provider | Matched |
-| **Routing Provider Fallback** | On provider error/timeout/exception: straight-line * 1.4 + mark trip DEGRADED | Fallback aerial 1.4 applied; `TripStatus.DEGRADED` set | Matched |
-| **Distance Ceiling** | Routed road distance > 100 km: 0m distance | Rejected as `REJECTED_MAX_DISTANCE` | Matched |
-| **Road Speed Rejection** | Both routed speed > 120 km/h AND straight*1.4 speed > 120 km/h: 0m distance | Evaluates dual speed condition before rejecting as `REJECTED_SPEED` | Matched |
-| **Single Speed Configuration** | Unified 120 km/h ceiling across cleaning and distance engine | `SegmentConfiguration` binds to `gps.cleaning.max-speed-kmh` (120 km/h) | Matched |
-| **Auditability & Privacy** | Explainable segment reasons and rule counts; no lat/lon in reasons or logs | Clear rule reasons, rule counters map, zero coordinate logging | Matched |
+| **Fake Routing Provider** | Deterministic straight-line * detourFactor (default 1.3), AtomicInteger counter, failure/latency injection | `FakeRoutingProvider` with thread-safe counters and configurable fault simulation | Matched |
+| **OSRM Routing Provider** | HTTP client querying OSRM driving endpoint; longitude first; timeout handling | `OsrmRoutingProvider` with shared `HttpClient`, `Locale.ROOT` coordinate formatting, and timeout management | Matched |
+| **Error Normalization** | Map all HTTP/JSON/network/timeout errors to `RoutingUnavailableException` without leaking secrets or coords | Strict error translation for status codes, invalid JSON, missing routes, and negative/NaN distances | Matched |
+| **Thread Interruption** | Restore interrupt flag before throwing on interrupted HTTP requests | `Thread.currentThread().interrupt()` called with simple English explanation comment | Matched |
+| **API Key Privacy** | Bearer token header if key present; key never in logs, errors, or `toString()` | Safe header attachment; excluded from `toString()` and error messages | Matched |
+| **URL Validation** | Validate `http://` or `https://` prefix; strip trailing slashes; warn on remote HTTP | Startup validation and remote HTTP logging warning | Matched |
+| **Conditional Configuration** | Wire single bean via `@ConditionalOnProperty`; fail fast on unknown provider | `RoutingConfiguration` with `@PostConstruct` fail-fast validation | Matched |
+| **Privacy by Design** | No coordinates, full URLs, or keys in exceptions or logs | Zero coordinates or sensitive values in logs or exception messages | Matched |
+| **Live Smoke Test** | Optional live test skipped by default behind `OSRM_LIVE_TEST=true` | `OsrmLiveSmokeTest` guarded by `@EnabledIfEnvironmentVariable` (skipped by default) | Matched |
