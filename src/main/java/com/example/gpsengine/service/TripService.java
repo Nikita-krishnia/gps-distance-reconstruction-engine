@@ -17,6 +17,8 @@ import com.example.gpsengine.error.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -167,6 +169,30 @@ public class TripService {
                 adjustmentsTotalMeters,
                 payableMeters,
                 closedAt
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public TripDto.EmployeeTripSummaryResponse getEmployeeTripSummary(Long tripId, String tenantId, String employeeRef) {
+        if (!persistenceService.isEmployeeParticipant(tripId, tenantId, employeeRef)) {
+            throw new ResourceNotFoundException("Trip not found");
+        }
+        Trip trip = persistenceService.findTrip(tripId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
+
+        List<DistanceCalculation> calcs = persistenceService.findCalculations(tripId, tenantId);
+        Double latestTotalKm = null;
+        if (!calcs.isEmpty()) {
+            latestTotalKm = BigDecimal.valueOf(calcs.get(0).getTotalMeters())
+                    .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP)
+                    .doubleValue();
+        }
+
+        return new TripDto.EmployeeTripSummaryResponse(
+                trip.getId(),
+                trip.getStatus(),
+                trip.getCreatedAt(),
+                latestTotalKm
         );
     }
 

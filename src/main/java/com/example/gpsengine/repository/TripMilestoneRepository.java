@@ -12,5 +12,7 @@ public interface TripMilestoneRepository extends JpaRepository<TripMilestone, Lo
     List<TripMilestone> findByTripId(Long tripId);
 
     List<TripMilestone> findByTripIdAndTenantId(Long tripId, String tenantId);
+
+    boolean existsByTripIdAndTenantIdAndEmployeeRef(Long tripId, String tenantId, String employeeRef);
 }
 

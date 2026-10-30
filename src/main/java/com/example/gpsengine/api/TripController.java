@@ -5,6 +5,7 @@ import com.example.gpsengine.api.dto.CalculationDto;
 import com.example.gpsengine.api.dto.MilestoneDto;
 import com.example.gpsengine.api.dto.PingDto;
 import com.example.gpsengine.api.dto.TripDto;
+import com.example.gpsengine.security.CurrentUser;
 import com.example.gpsengine.service.CalculationService;
 import com.example.gpsengine.service.TripService;
 import jakarta.validation.Valid;
@@ -13,24 +14,21 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * REST controller exposing endpoints for trip management, ping/milestone ingestion,
  * distance reconstruction calculations, and invoice closure.
+ * Multi-tenant isolation is enforced via verified JWT claims encapsulated in {@link CurrentUser}.
  */
 @RestController
 @RequestMapping("/api/v1/trips")
 public class TripController {
-
-    private static final Pattern TENANT_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
 
     private final TripService tripService;
     private final CalculationService calculationService;
@@ -40,21 +38,11 @@ public class TripController {
         this.calculationService = calculationService;
     }
 
-    private void validateTenantId(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("X-Tenant-Id header must not be blank");
-        }
-        if (!TENANT_ID_PATTERN.matcher(tenantId.trim()).matches()) {
-            throw new IllegalArgumentException("X-Tenant-Id header is invalid: must be 1-64 alphanumeric characters, dashes, or underscores");
-        }
-    }
-
     @PostMapping
     public ResponseEntity<TripDto.TripResponse> createTrip(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @Valid @RequestBody TripDto.CreateTripRequest request) {
-        validateTenantId(tenantId);
-        TripDto.TripResponse response = tripService.createTrip(request, tenantId.trim());
+        TripDto.TripResponse response = tripService.createTrip(request, user.tenantId());
 
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -66,30 +54,27 @@ public class TripController {
 
     @PostMapping("/{tripId}/pings")
     public ResponseEntity<PingDto.UploadPingsResponse> uploadPings(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId,
             @Valid @RequestBody PingDto.UploadPingsRequest request) {
-        validateTenantId(tenantId);
-        PingDto.UploadPingsResponse response = tripService.uploadPings(tripId, tenantId.trim(), request);
+        PingDto.UploadPingsResponse response = tripService.uploadPings(tripId, user.tenantId(), request);
         return ResponseEntity.status(201).body(response);
     }
 
     @PostMapping("/{tripId}/milestones")
     public ResponseEntity<MilestoneDto.UploadMilestonesResponse> uploadMilestones(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId,
             @Valid @RequestBody MilestoneDto.UploadMilestonesRequest request) {
-        validateTenantId(tenantId);
-        MilestoneDto.UploadMilestonesResponse response = tripService.uploadMilestones(tripId, tenantId.trim(), request);
+        MilestoneDto.UploadMilestonesResponse response = tripService.uploadMilestones(tripId, user.tenantId(), request);
         return ResponseEntity.status(201).body(response);
     }
 
     @PostMapping("/{tripId}/calculations")
     public ResponseEntity<CalculationDto.CalculationResponse> calculateTripDistance(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId) {
-        validateTenantId(tenantId);
-        CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(tripId, tenantId.trim());
+        CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(tripId, user.tenantId());
         if (response.reused()) {
             return ResponseEntity.ok(response);
         }
@@ -98,47 +83,48 @@ public class TripController {
 
     @PostMapping("/{tripId}/close-invoice")
     public ResponseEntity<TripDto.CloseInvoiceResponse> closeInvoice(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId) {
-        validateTenantId(tenantId);
-        TripDto.CloseInvoiceResponse response = calculationService.closeInvoice(tripId, tenantId.trim());
+        TripDto.CloseInvoiceResponse response = calculationService.closeInvoice(tripId, user.tenantId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{tripId}")
-    public ResponseEntity<TripDto.TripDetailResponse> getTripDetails(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+    public ResponseEntity<?> getTripDetails(
+            CurrentUser user,
             @PathVariable Long tripId) {
-        validateTenantId(tenantId);
-        TripDto.TripDetailResponse response = tripService.getTripDetails(tripId, tenantId.trim());
+        if (user != null && user.isEmployee()) {
+            TripDto.EmployeeTripSummaryResponse summary = tripService.getEmployeeTripSummary(
+                    tripId, user.tenantId(), user.employeeRef()
+            );
+            return ResponseEntity.ok(summary);
+        }
+        TripDto.TripDetailResponse response = tripService.getTripDetails(tripId, user.tenantId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{tripId}/calculations")
     public ResponseEntity<List<CalculationDto.CalculationResponse>> getCalculationHistory(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId) {
-        validateTenantId(tenantId);
-        List<CalculationDto.CalculationResponse> response = tripService.getCalculationHistory(tripId, tenantId.trim());
+        List<CalculationDto.CalculationResponse> response = tripService.getCalculationHistory(tripId, user.tenantId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{tripId}/calculations/{calculationId}/segments")
     public ResponseEntity<List<CalculationDto.SegmentResponse>> getCalculationSegments(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId,
             @PathVariable Long calculationId) {
-        validateTenantId(tenantId);
-        List<CalculationDto.SegmentResponse> response = tripService.getCalculationSegments(tripId, calculationId, tenantId.trim());
+        List<CalculationDto.SegmentResponse> response = tripService.getCalculationSegments(tripId, calculationId, user.tenantId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{tripId}/billing-adjustments")
     public ResponseEntity<List<BillingAdjustmentDto.AdjustmentResponse>> getBillingAdjustments(
-            @RequestHeader("X-Tenant-Id") String tenantId,
+            CurrentUser user,
             @PathVariable Long tripId) {
-        validateTenantId(tenantId);
-        List<BillingAdjustmentDto.AdjustmentResponse> response = tripService.getBillingAdjustments(tripId, tenantId.trim());
+        List<BillingAdjustmentDto.AdjustmentResponse> response = tripService.getBillingAdjustments(tripId, user.tenantId());
         return ResponseEntity.ok(response);
     }
 }

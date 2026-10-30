@@ -345,4 +345,12 @@ public class TripDataPersistenceService {
 
         return new CloseInvoiceOutcome(latestCalc.getId(), latestCalc.getTotalMeters(), closedAt);
     }
+
+    @Transactional(readOnly = true)
+    public boolean isEmployeeParticipant(Long tripId, String tenantId, String employeeRef) {
+        if (employeeRef == null || employeeRef.isBlank()) {
+            return false;
+        }
+        return tripMilestoneRepository.existsByTripIdAndTenantIdAndEmployeeRef(tripId, tenantId, employeeRef.trim());
+    }
 }

@@ -40,6 +40,13 @@ public class TripDto {
             Instant createdAt
     ) {}
 
+    public record EmployeeTripSummaryResponse(
+            Long id,
+            TripStatus status,
+            Instant createdAt,
+            Double latestTotalKm
+    ) {}
+
     public record TripDetailResponse(
             Long id,
             TripStatus status,
