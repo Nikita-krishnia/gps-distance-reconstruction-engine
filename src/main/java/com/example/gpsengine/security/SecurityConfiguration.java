@@ -129,9 +129,12 @@ public class SecurityConfiguration {
                 // Public endpoints
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/hello").permitAll()
+                .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
 
-                // ADMIN only: close invoice
+                // ADMIN only: close invoice, actuator metrics/info, demo fault injection
                 .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/close-invoice").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/actuator/metrics", "/actuator/metrics/**", "/actuator/info").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/admin/demo/provider-failure").hasRole("ADMIN")
 
                 // EMPLOYEE, OPERATOR, ADMIN: read single trip details (filtered further in controller for EMPLOYEE)
                 .requestMatchers(HttpMethod.GET, "/api/v1/trips/*").hasAnyRole("EMPLOYEE", "OPERATOR", "ADMIN")
@@ -142,6 +145,9 @@ public class SecurityConfiguration {
                 // Deny all other requests by default
                 .anyRequest().denyAll()
         );
+
+        // Populate MDC with verified JWT claims (userId, tenantId) after authentication
+        http.addFilterAfter(new SecurityMdcFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
 
         // Configure OAuth2 Resource Server for JWT bearer authentication
         http.oauth2ResourceServer(oauth2 -> oauth2

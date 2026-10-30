@@ -273,5 +273,34 @@ class SecurityRoleMatrixTest {
                 .andExpect(jsonPath("$.correlationId").isNotEmpty())
                 .andExpect(jsonPath("$.fieldErrors").isArray());
     }
+
+    @Test
+    @DisplayName("Demo provider failure endpoint returns 401 without token and 403 for EMPLOYEE/OPERATOR")
+    void demoProviderFailureRoleMatrix() throws Exception {
+        String body = "{\"failing\": true}";
+
+        // Unauthenticated -> 401
+        mockMvc.perform(post("/api/v1/admin/demo/provider-failure")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code", is("UNAUTHENTICATED")));
+
+        // EMPLOYEE -> 403
+        mockMvc.perform(post("/api/v1/admin/demo/provider-failure")
+                        .with(asRole("EMPLOYEE", TENANT, "emp-001"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code", is("ACCESS_DENIED")));
+
+        // OPERATOR -> 403
+        mockMvc.perform(post("/api/v1/admin/demo/provider-failure")
+                        .with(asRole("OPERATOR", TENANT, null))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code", is("ACCESS_DENIED")));
+    }
 }
 

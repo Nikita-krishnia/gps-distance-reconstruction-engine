@@ -51,6 +51,8 @@ public class DatabaseUserSeeder implements InitializingBean {
         Instant now = clock.instant();
         String passwordHash = passwordEncoder.encode(seedPassword);
 
+        seedIfMissing("admin", "tenant-a", Role.ADMIN, null, passwordHash, now);
+        seedIfMissing("operator", "tenant-a", Role.OPERATOR, null, passwordHash, now);
         seedIfMissing("admin-a", "tenant-a", Role.ADMIN, null, passwordHash, now);
         seedIfMissing("operator-a", "tenant-a", Role.OPERATOR, null, passwordHash, now);
         seedIfMissing("employee-a", "tenant-a", Role.EMPLOYEE, "emp-001", passwordHash, now);
