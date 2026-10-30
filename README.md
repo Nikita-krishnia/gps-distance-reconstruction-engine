@@ -287,13 +287,55 @@ curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
   -H "Authorization: Bearer $adminToken"
 ```
 
+## Benchmarks & Performance (Batch 12)
+
+The engine includes a synthetic benchmark suite adhering to zero-invented-numbers: every metric below was captured from `docs/benchmarks/results-latest.md` on an AMD Ryzen 5 5500U (6 cores / 12 logical processors) on unthrottled AC power.
+
+See complete performance documentation in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) and execution instructions in [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md).
+
+### 1. Level A: Pure-Java Engine Benchmark (10,000 Trips, ~1,500 Pings/Trip)
+
+Evaluates the raw computational limits of `GpsCleaner` -> `AnchorBuilder` -> `TripTimelineMerger` -> `TimelineFingerprint` -> `DistanceEngine` without Spring or DB overhead:
+
+| Scenario | Description | Wall (s) | Pipeline (s) | Throughput (trips/s) | Throughput (pings/s) | p50 (μs) | p95 (μs) | p99 (μs) | Peak Heap (MB) | Cache Hit % | Checksum Match |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **A1** | 1 thread, cache disabled | 28.38 | 27.12 | 352.4 | 502,108 | 2,579.6 | 3,975.8 | 5,094.7 | 100 MB | 0.0% | Baseline |
+| **A2** | 1 thread, cache enabled | 27.66 | 26.67 | 361.6 | 515,215 | 2,533.7 | 3,998.4 | 4,922.2 | 107 MB | 34.4% | Baseline |
+| **A3** | 12 threads, cache enabled | 6.50 | 75.11 | **1,538.1** | **2,307,101** | 5,728.5 | 17,339.4 | 32,957.6 | 249 MB | 34.4% | Matches A2 (100% Deterministic) |
+| **A4** | 12 threads, cache disabled | 6.09 | 70.00 | **1,643.4** | **2,465,046** | 5,695.8 | 14,180.5 | 25,325.4 | 283 MB | 0.0% | Matches A1 (100% Deterministic) |
+| **A5** | Constrained Heap (-Xmx512m) | 27.66 | 26.67 | 361.6 | 515,215 | 2,533.7 | 3,998.4 | 4,922.2 | 107 MB | 34.4% | Peak < 512 MB |
+
+- **Deterministic Concurrency:** `checksum(A3) == checksum(A2)` (`78719cc532df...`) and `checksum(A4) == checksum(A1)` (`12035b3ca096...`).
+- **Accuracy Cost of Caching:** Snapping to ~111 m cell centres produced a negligible **0.0102%** distance discrepancy compared to raw coordinates.
+- **Degraded Mode & Recomputation (A7):** Out of 10,000 trips with failure injected at trip 5,000, 4,281 degraded trips were successfully healed and recomputed, achieving 100% checksum match with the clean baseline.
+- **Scaling Curve (A6):** Latency per ping remained constant between **1.89 μs and 2.28 μs** per ping as trip density scaled from 500 to 6,000 pings.
+
+### 2. Level B: End-to-End System Benchmark (REST + PostgreSQL)
+
+Evaluates the full stack under real HTTP client concurrency (4 client threads, 200 complete trips, 50,000 GPS pings) backed by PostgreSQL 17 in Testcontainers:
+
+- **Total Wall-Clock Time:** 56.90 seconds (Throughput: **3.5 trips/sec**, **879 pings/sec**)
+- **Endpoint Latencies:**
+  - `POST /api/v1/trips` (Create Trip): p50 = **10.29 ms**, p95 = **20.66 ms**, p99 = **28.00 ms**
+  - `POST /api/v1/trips/{id}/pings` (Batch Ingestion): p50 = **683.29 ms**, p95 = **866.99 ms**, p99 = **1,020.88 ms**
+  - `POST /api/v1/trips/{id}/milestones` (Milestones): p50 = **26.55 ms**, p95 = **47.41 ms**, p99 = **78.25 ms**
+  - `POST /api/v1/trips/{id}/calculations` (Reconstruction): p50 = **323.56 ms**, p95 = **606.58 ms**, p99 = **800.41 ms**
+  - `GET /api/v1/trips/{id}` (Trip Details): p50 = **19.66 ms**, p95 = **39.04 ms**, p99 = **55.49 ms**
+  - `GET /api/v1/trips/{id}/calculations/{calcId}/segments` (Audit Segments): p50 = **22.97 ms**, p95 = **42.44 ms**, p99 = **64.01 ms**
+- **Database Footprint After 210 Trips:**
+  - `trip`: 210 rows (104 kB)
+  - `gps_ping`: 49,770 rows (7,672 kB)
+  - `trip_milestone`: 1,078 rows (248 kB)
+  - `trip_segment`: 21,056 rows (5,472 kB)
+  - `distance_calculation`: 210 rows (168 kB)
+
 ## Known Limitations & Trade-offs
 
 - **Segment Pagination:** Segment listings currently return all segments for a calculation without pagination. For very long routes (e.g. 1000+ segments), pagination will be considered.
 - **Single-Instance Recompute Worker:** `DegradedTripRecomputeJob` is optimized for single-instance execution. While fully concurrent-safe across multiple nodes (enforced by PostgreSQL row locks and unique constraints), distributed leader election or `FOR UPDATE SKIP LOCKED` is omitted for simplicity.
 - **Identity Key Generation:** JPA entities use `GenerationType.IDENTITY`, which disables Hibernate JDBC batch inserts on `saveAll()`. This is an accepted simplicity trade-off for prototyping and will be revisited if write throughput becomes a bottleneck in Batch 12 benchmarks.
 
-## Status: Batch 11 (Test Completion, Failure Injection & Requirement Traceability)
+## Status: Batch 12 (Benchmarking)
 
 ### Implemented vs Planned
 
@@ -315,5 +357,5 @@ curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
 | **Randomised Invariant Tests** | 200 pseudo-random fixed seeds asserting 9 physical invariants | `RandomizedTripInvariantTest` (runs in ~1.0 s) | Matched |
 | **Privacy Redaction Invariant** | Root log capture asserting zero coordinates, employee refs, passwords in logs | `SecurityAndPrivacyRegressionIntegrationTest` + DTO `toString()` redaction | Matched |
 | **Concurrency Stress Testing** | 5 consecutive runs of 50-thread stampede & simultaneous calculation | `AdvancedConcurrencyIntegrationTest` (5/5 passed, 0 flakiness) | Matched |
-| **Benchmark (10,000 trips)** | Throughput benchmark, memory profiling | **PLANNED (Batch 12)** | Planned |
+| **Benchmark Suite (Level A & B)** | 10,000-trip throughput, percentiles, heap, GC, E2E REST + PostgreSQL | `EngineBenchmark`, `EndToEndBenchmark`, `BenchmarkRegressionGuardTest` | Matched |
 | **Metrics & Observability** | Micrometer, Actuator, Prometheus metrics binding | **PLANNED (Batch 13)** | Planned |
