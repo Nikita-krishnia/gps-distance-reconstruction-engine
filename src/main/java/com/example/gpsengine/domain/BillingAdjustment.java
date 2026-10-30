@@ -6,15 +6,29 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.Instant;
 import java.util.Objects;
 
 @Entity
-@Table(name = "billing_adjustment")
+@Table(
+    name = "billing_adjustment",
+    indexes = {
+        @Index(name = "idx_adjustment_trip", columnList = "trip_id"),
+        @Index(name = "idx_adjustment_tenant", columnList = "tenant_id")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_adjustment_trip_new_calc",
+            columnNames = {"trip_id", "new_calculation_id"}
+        )
+    }
+)
 public class BillingAdjustment {
 
     @Id
@@ -90,11 +104,7 @@ public class BillingAdjustment {
                 "id=" + id +
                 ", tenantId='" + tenantId + '\'' +
                 ", tripId=" + (trip != null ? trip.getId() : null) +
-                ", oldCalculationId=" + (oldCalculation != null ? oldCalculation.getId() : null) +
-                ", newCalculationId=" + (newCalculation != null ? newCalculation.getId() : null) +
                 ", deltaMeters=" + deltaMeters +
-                ", createdAt=" + createdAt +
                 '}';
     }
 }
-

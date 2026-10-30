@@ -4,11 +4,15 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -26,6 +30,9 @@ public class Trip {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    private Long version;
+
     @Column(name = "tenant_id", nullable = false)
     private String tenantId;
 
@@ -42,6 +49,13 @@ public class Trip {
 
     @Column(name = "office_planned_lon")
     private Double officePlannedLon;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "billed_calculation_id")
+    private DistanceCalculation billedCalculation;
+
+    @Column(name = "closed_at")
+    private Instant closedAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -64,6 +78,10 @@ public class Trip {
         return id;
     }
 
+    public Long getVersion() {
+        return version;
+    }
+
     public String getTenantId() {
         return tenantId;
     }
@@ -73,7 +91,7 @@ public class Trip {
     }
 
     public void setStatus(TripStatus status) {
-        this.status = status;
+        this.status = Objects.requireNonNull(status, "status must not be null");
     }
 
     public BillingStatus getBillingStatus() {
@@ -81,7 +99,7 @@ public class Trip {
     }
 
     public void setBillingStatus(BillingStatus billingStatus) {
-        this.billingStatus = billingStatus;
+        this.billingStatus = Objects.requireNonNull(billingStatus, "billingStatus must not be null");
     }
 
     public Double getOfficePlannedLat() {
@@ -92,20 +110,34 @@ public class Trip {
         return officePlannedLon;
     }
 
+    public DistanceCalculation getBilledCalculation() {
+        return billedCalculation;
+    }
+
+    public void setBilledCalculation(DistanceCalculation billedCalculation) {
+        this.billedCalculation = billedCalculation;
+    }
+
+    public Instant getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(Instant closedAt) {
+        this.closedAt = closedAt;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
     @Override
     public String toString() {
-        // Safe representation: never print coordinates
         return "Trip{" +
                 "id=" + id +
                 ", tenantId='" + tenantId + '\'' +
                 ", status=" + status +
                 ", billingStatus=" + billingStatus +
-                ", createdAt=" + createdAt +
+                ", version=" + version +
                 '}';
     }
 }
-

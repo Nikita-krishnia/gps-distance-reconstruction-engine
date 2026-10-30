@@ -41,10 +41,10 @@ public final class DomainFactory {
     }
 
     public static DistanceCalculation createCalculation(
-            String tenantId, Trip trip, String ruleVersion, long totalMeters,
+            String tenantId, Trip trip, String inputHash, String ruleVersion, long totalMeters,
             TripStatus status, int routingProviderCalls, int cacheHits, int cacheMisses) {
         return new DistanceCalculation(
-                tenantId, trip, ruleVersion, totalMeters, status,
+                tenantId, trip, inputHash, ruleVersion, totalMeters, status,
                 routingProviderCalls, cacheHits, cacheMisses, Instant.now()
         );
     }
@@ -61,5 +61,12 @@ public final class DomainFactory {
                 meters, rule, reason
         );
     }
-}
 
+    public static BillingAdjustment createAdjustment(
+            String tenantId, Trip trip, DistanceCalculation oldCalc,
+            DistanceCalculation newCalc, long deltaMeters) {
+        return new BillingAdjustment(
+                tenantId, trip, oldCalc, newCalc, deltaMeters, Instant.now()
+        );
+    }
+}
