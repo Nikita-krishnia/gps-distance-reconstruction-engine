@@ -1,0 +1,17 @@
+{
+  "pings": [
+    {
+      "latitude": 12.9728,
+      "longitude": 77.6442,
+      "recordedAt": "2026-10-30T08:07:00Z",
+      "accuracyMeters": 6.0
+    },
+    {
+      "latitude": 12.9736,
+      "longitude": 77.6462,
+      "recordedAt": "2026-10-30T08:11:30Z",
+      "accuracyMeters": 5.5
+    }
+  ]
+}
+

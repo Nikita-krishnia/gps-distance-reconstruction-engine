@@ -1,0 +1,31 @@
+{
+  "milestones": [
+    {
+      "type": "TRIP_START",
+      "actualLatitude": 13.0500,
+      "actualLongitude": 77.5800,
+      "actualTime": "2026-10-30T09:00:00Z"
+    },
+    {
+      "type": "PICKUP",
+      "employeeRef": "emp-201",
+      "actualLatitude": 13.0600,
+      "actualLongitude": 77.5900,
+      "actualTime": "2026-10-30T09:10:00Z"
+    },
+    {
+      "type": "DROP",
+      "employeeRef": "emp-201",
+      "actualLatitude": 13.0700,
+      "actualLongitude": 77.6000,
+      "actualTime": "2026-10-30T09:20:00Z"
+    },
+    {
+      "type": "TRIP_END",
+      "actualLatitude": 13.0700,
+      "actualLongitude": 77.6000,
+      "actualTime": "2026-10-30T09:21:00Z"
+    }
+  ]
+}
+

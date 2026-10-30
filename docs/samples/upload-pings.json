@@ -1,0 +1,41 @@
+{
+  "pings": [
+    {
+      "latitude": 12.9710,
+      "longitude": 77.6410,
+      "recordedAt": "2026-10-30T08:00:00Z",
+      "accuracyMeters": 8.5
+    },
+    {
+      "latitude": 12.9715,
+      "longitude": 77.6418,
+      "recordedAt": "2026-10-30T08:02:00Z",
+      "accuracyMeters": 7.2
+    },
+    {
+      "latitude": 12.9725,
+      "longitude": 77.6435,
+      "recordedAt": "2026-10-30T08:05:00Z",
+      "accuracyMeters": 5.0
+    },
+    {
+      "latitude": 12.9732,
+      "longitude": 77.6450,
+      "recordedAt": "2026-10-30T08:09:00Z",
+      "accuracyMeters": 9.1
+    },
+    {
+      "latitude": 12.9740,
+      "longitude": 77.6475,
+      "recordedAt": "2026-10-30T08:14:00Z",
+      "accuracyMeters": 6.4
+    },
+    {
+      "latitude": 12.9750,
+      "longitude": 77.6500,
+      "recordedAt": "2026-10-30T08:20:00Z",
+      "accuracyMeters": 4.8
+    }
+  ]
+}
+
