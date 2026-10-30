@@ -45,49 +45,47 @@ Expected output:
 ## How to Test
 
 ### 1. Engine & Routing Tests (Fast, Plain Java, No Docker Required)
-The core mathematical, GPS cleaning, anchor merging, distance calculation engine, and routing providers run without Docker or Spring context:
+The core mathematical, GPS cleaning, anchor merging, distance calculation engine, routing providers, caching, and circuit breaker run without Docker or Spring context:
 
 ```powershell
 # Engine tests (44 tests)
 .\mvnw.cmd test -Dtest="com.example.gpsengine.engine.*Test"
 
-# Routing tests (20 tests, 1 optional live test skipped by default)
+# Routing tests (43 tests, 1 optional live test skipped by default)
 .\mvnw.cmd test -Dtest="com.example.gpsengine.routing.*Test"
 ```
 
 ### 2. Full Test Suite (Requires Docker Desktop)
-Runs all 70 tests (engine tests, routing tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
+Runs all 93 active tests (engine tests, routing tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
 
 ```powershell
 .\mvnw.cmd test
 ```
 
-## Routing Providers
+## Routing Providers, Caching & Circuit Breaker
 
-The system supports pluggable routing implementations chosen at startup via the `routing.provider` property:
+### Architectural Chain
+Routing requests follow a decorated pipeline:
+```text
+DistanceEngine 
+    ──> CachingRoutingProvider (Caffeine) 
+            ──> CircuitBreakerRoutingProvider (Hand-written FSM) 
+                    ──> Raw Routing Provider (Fake or OSRM)
+```
+- **Deliberate Availability Choice:** Cache lookups sit outside the circuit breaker. When the circuit breaker trips `OPEN` due to an upstream outage, cached routes continue to be served seamlessly (`source = CACHE`), preserving high availability for frequent commute corridors.
 
-1. **`fake` (Default):**
-   - Calculates distance as Haversine straight-line distance multiplied by a configurable `detourFactor` (default `1.3`).
-   - Completely deterministic, in-memory, and provides thread-safe call tracking and optional failure/latency injection.
-   - Used for all automated unit tests, integration tests, and performance benchmarks to ensure reliable, zero-flakiness builds without internet or external server dependencies.
+### Caching, Circuit Breaker and Degraded Mode
 
-2. **`osrm`:**
-   - Calls an external OSRM-compatible HTTP server using the standard driving route endpoint:
-     `GET {baseUrl}/route/v1/driving/{fromLon},{fromLat};{toLon},{toLat}?overview=false`
-   - **Coordinate Order:** OSRM mandates **longitude first**, then latitude (`{lon},{lat}`). Coordinates are formatted using `Locale.ROOT` with dot decimal separators.
-   - Extracts road distance in meters from `routes[0].distance`.
-   - Maps every network, timeout, HTTP, and JSON payload error into a clean `RoutingUnavailableException` with coordinate-free and secret-free messages.
-   - Restores thread interruption status before throwing on interrupted requests.
+| Dimension | Policy / Choice | Trade-off Description |
+| :--- | :--- | :--- |
+| **Consistency vs Availability** | High Availability | Cache hits bypass the breaker during outages. If upstream road conditions or geometries change, cached answers will remain in use until TTL expires. |
+| **Latency vs Freshness** | Low Latency (~sub-millisecond) | Lookups are in-memory (Caffeine). Entries live up to `routing.cache.ttl-hours` (default 24h) before eviction/reload. |
+| **Grid Snapping vs Accuracy** | Grid Snapping (~110m cells) | Coordinate endpoints snap to grid cells (`0.001` degrees $\approx 111\text{m}$). Each endpoint is queried using the **centre of the cell**, displacing endpoints by at most $\approx 78\text{m}$. This guarantees **100% determinism** across threads and arrival orders at the cost of slight endpoint displacement. |
+| **Memory Bound** | Window TinyLFU Eviction | In-memory cache is capped at `routing.cache.max-entries` (default 100,000), bounding heap usage. |
+| **Degraded Mode** | Straight-line $\times 1.4$ Fallback | When upstream fails or breaker is `OPEN`, segments fallback to aerial $\times 1.4$ and the trip is marked `TripStatus.DEGRADED`. |
 
-### Configuration & Security
-- **Safe Environment Variables:** Do not hardcode URLs or credentials in source code. Configure them in `.env` (kept git-ignored):
-  ```bash
-  OSRM_BASE_URL=http://localhost:5000
-  OSRM_API_KEY=your_optional_api_key
-  ```
-- **Demo Server Limitation:** The public OSRM server (`https://router.project-osrm.org`) is for light demos only. It is heavily rate-limited and must never be used for benchmarks or automated CI pipelines.
-- **Docker Compose Note:** OSRM is intentionally omitted from `compose.yaml` because OSRM requires multi-gigabyte OpenStreetMap extract files and pre-processing graphs.
-- **Production Verification Status:** While the OSRM client has been rigorously tested against local HTTP servers simulating all success, error, timeout, and privacy edge cases, a real OSRM provider has **not** been verified under production-scale traffic conditions.
+> [!IMPORTANT]
+> **Automatic Recomputation Status:** Automatic background recomputation of `DEGRADED` trips is **NOT implemented yet**. It is planned for **Batch 9** as a scheduled background recovery job once database persistence and service layers are complete.
 
 ## Rounding & Precision Trade-offs
 
@@ -95,18 +93,19 @@ The system supports pluggable routing implementations chosen at startup via the 
 - **Deterministic Sum:** The trip total distance is the exact mathematical sum of these whole-meter `long` values. This guarantees 100% deterministic, reproducible totals without floating-point accumulation drift or rounding discrepancies across platforms.
 - **Micro-distance Trade-off:** Segments shorter than 0.5 meters (e.g. slight jitter while parked) round down to 0 meters. This minor micro-distance undercounting is an intentional trade-off in favor of audit-proof integer precision.
 
-## Status: Batch 6 (Routing Provider Implementations)
+## Status: Batch 7 (Routing Cache, Counters & Circuit Breaker)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
-| **Fake Routing Provider** | Deterministic straight-line * detourFactor (default 1.3), AtomicInteger counter, failure/latency injection | `FakeRoutingProvider` with thread-safe counters and configurable fault simulation | Matched |
-| **OSRM Routing Provider** | HTTP client querying OSRM driving endpoint; longitude first; timeout handling | `OsrmRoutingProvider` with shared `HttpClient`, `Locale.ROOT` coordinate formatting, and timeout management | Matched |
-| **Error Normalization** | Map all HTTP/JSON/network/timeout errors to `RoutingUnavailableException` without leaking secrets or coords | Strict error translation for status codes, invalid JSON, missing routes, and negative/NaN distances | Matched |
-| **Thread Interruption** | Restore interrupt flag before throwing on interrupted HTTP requests | `Thread.currentThread().interrupt()` called with simple English explanation comment | Matched |
-| **API Key Privacy** | Bearer token header if key present; key never in logs, errors, or `toString()` | Safe header attachment; excluded from `toString()` and error messages | Matched |
-| **URL Validation** | Validate `http://` or `https://` prefix; strip trailing slashes; warn on remote HTTP | Startup validation and remote HTTP logging warning | Matched |
-| **Conditional Configuration** | Wire single bean via `@ConditionalOnProperty`; fail fast on unknown provider | `RoutingConfiguration` with `@PostConstruct` fail-fast validation | Matched |
-| **Privacy by Design** | No coordinates, full URLs, or keys in exceptions or logs | Zero coordinates or sensitive values in logs or exception messages | Matched |
-| **Live Smoke Test** | Optional live test skipped by default behind `OSRM_LIVE_TEST=true` | `OsrmLiveSmokeTest` guarded by `@EnabledIfEnvironmentVariable` (skipped by default) | Matched |
+| **Caffeine In-Memory Cache** | Caffeine cache with maximumSize, expireAfterWrite TTL, grid snapping, centre-to-centre routing | `CachingRoutingProvider` with directional snapped grid keys, centre routing, and same-cell bypass | Matched |
+| **Deterministic Caching** | Snap to cell centres so cached values depend only on the key, not arrival order | Centre coordinate conversion for from/to endpoints | Matched |
+| **Same-Cell Bypass** | When start/end share same cell, bypass cache, route exact coords, do not cache | Same-cell detection with direct pass-through and `cacheBypasses` counter | Matched |
+| **Circuit Breaker** | States CLOSED, OPEN, HALF_OPEN; threshold failures; open duration; single trial | Plain-Java `CircuitBreaker` with synchronized state machine and lock-free execution | Matched |
+| **Concurrency & Non-Blocking** | Never hold lock while provider call runs | Lock released during upstream I/O; trial in-flight guard prevents multiple probes | Matched |
+| **Routing Telemetry** | Thread-safe counters for hits, misses, bypasses, provider calls, failures, breaker rejections | `RoutingStats` with `LongAdder` counters and immutable `Snapshot` | Matched |
+| **Per-Trip Stats in Engine** | `DistanceResult` tracks `providerCalls`, `cacheHits`, and `cacheMisses` | `DistanceEngine` populates per-trip metrics from `RouteResult.source()` | Matched |
+| **Runtime Failure Control** | `FakeRoutingProvider` toggleable failure for recovery verification | `setFailing(boolean)` added to `FakeRoutingProvider` | Matched |
+| **Decorated Wiring** | Chain: primary `CachingRoutingProvider` -> `CircuitBreakerRoutingProvider` -> raw provider | `RoutingConfiguration` wires chain, stats, breaker, and clock beans | Matched |
+| **Automatic Recomputation Job** | Scheduled background worker recomputing DEGRADED trips upon provider recovery | **PLANNED (Batch 9)** | Planned |
