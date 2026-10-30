@@ -1,11 +1,14 @@
 package com.example.gpsengine.api;
 
 import com.example.gpsengine.domain.BillingStatus;
+import com.example.gpsengine.domain.Role;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.routing.FakeRoutingProvider;
 import com.example.gpsengine.routing.RoutingProvider;
+import com.example.gpsengine.security.TestSecurityHelper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +16,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +76,18 @@ class EndToEndTripIntegrationTest {
     private static final String TENANT_A = "tenant-alpha";
     private static final String TENANT_B = "tenant-bravo";
 
+    @Autowired
+    private TestSecurityHelper testSecurityHelper;
+
+    private String tokenA;
+    private String tokenB;
+
+    @BeforeEach
+    void setUpTokens() {
+        tokenA = testSecurityHelper.generateToken("admin-a-e2e", TENANT_A, Role.ADMIN, null);
+        tokenB = testSecurityHelper.generateToken("admin-b-e2e", TENANT_B, Role.ADMIN, null);
+    }
+
     @Test
     @DisplayName("Complete end-to-end trip reconstruction flow: idempotency, invoice closing, late pings, signed adjustments")
     void fullTripReconstructionFlow() throws Exception {
@@ -84,7 +100,7 @@ class EndToEndTripIntegrationTest {
                 """;
 
         MvcResult createResult = mockMvc.perform(post("/api/v1/trips")
-                        .header("X-Tenant-Id", TENANT_A)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createTripJson))
                 .andExpect(status().isCreated())
@@ -112,7 +128,7 @@ class EndToEndTripIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings")
-                        .header("X-Tenant-Id", TENANT_A)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(pingsJson))
                 .andExpect(status().isCreated())
@@ -153,7 +169,7 @@ class EndToEndTripIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones")
-                        .header("X-Tenant-Id", TENANT_A)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(milestonesJson))
                 .andExpect(status().isCreated())
@@ -161,7 +177,7 @@ class EndToEndTripIntegrationTest {
 
         // 4. Calculate Distance (First Run -> 201 Created)
         MvcResult calc1Result = mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").exists())
                 .andExpect(jsonPath("$.status", is("CALCULATED")))
@@ -175,7 +191,7 @@ class EndToEndTripIntegrationTest {
 
         // 5. Idempotent Calculate: Call calculate again with unchanged data -> 200 OK with reused=true
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is((int) calc1Id)))
                 .andExpect(jsonPath("$.reused", is(true)))
@@ -190,20 +206,20 @@ class EndToEndTripIntegrationTest {
                 }
                 """;
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings")
-                        .header("X-Tenant-Id", TENANT_A)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(uselessPings))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is((int) calc1Id)))
                 .andExpect(jsonPath("$.reused", is(true)));
 
         // 7. Close Invoice -> 200 OK
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.billedCalculationId", is((int) calc1Id)))
                 .andExpect(jsonPath("$.billedMeters", is((int) originalTotalMeters)))
@@ -211,7 +227,7 @@ class EndToEndTripIntegrationTest {
 
         // 8. Closing again is idempotent -> 200 OK with identical body
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.billedCalculationId", is((int) calc1Id)))
                 .andExpect(jsonPath("$.billedMeters", is((int) originalTotalMeters)));
@@ -225,14 +241,14 @@ class EndToEndTripIntegrationTest {
                 }
                 """;
         mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings")
-                        .header("X-Tenant-Id", TENANT_A)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(latePing))
                 .andExpect(status().isCreated());
 
         // 10. Recalculate closed trip -> 201 Created with BillingAdjustment
         MvcResult lateCalcResult = mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").exists())
                 .andExpect(jsonPath("$.reused", is(false)))
@@ -246,7 +262,7 @@ class EndToEndTripIntegrationTest {
 
         // 11. Verify Trip Details reflects billed, adjustments, and payableMeters
         mockMvc.perform(get("/api/v1/trips/" + tripId)
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("CALCULATED")))
                 .andExpect(jsonPath("$.billingStatus", is("CLOSED")))
@@ -257,17 +273,17 @@ class EndToEndTripIntegrationTest {
 
         // 12. GET /billing-adjustments returns ledger history
         mockMvc.perform(get("/api/v1/trips/" + tripId + "/billing-adjustments")
-                        .header("X-Tenant-Id", TENANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].deltaMeters", is((int) adjustmentDelta)));
 
         // 13. Tenant Isolation on all endpoints
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice").header("X-Tenant-Id", TENANT_B))
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenB))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/trips/" + tripId + "/billing-adjustments").header("X-Tenant-Id", TENANT_B))
+        mockMvc.perform(get("/api/v1/trips/" + tripId + "/billing-adjustments").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenB))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header("X-Tenant-Id", TENANT_B))
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenB))
                 .andExpect(status().isNotFound());
     }
 
@@ -276,11 +292,11 @@ class EndToEndTripIntegrationTest {
     void concurrentCalculateIdempotency() throws Exception {
         // Create fresh trip
         String createTripJson = "{\"officePlannedLatitude\": 12.9279, \"officePlannedLongitude\": 77.6271}";
-        MvcResult res = mockMvc.perform(post("/api/v1/trips").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
+        MvcResult res = mockMvc.perform(post("/api/v1/trips").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
         Long tripId = Long.parseLong(res.getResponse().getHeader("Location").substring(res.getResponse().getHeader("Location").lastIndexOf('/') + 1));
 
         String pingsJson = "{\"pings\": [{\"latitude\": 12.9716, \"longitude\": 77.5946, \"recordedAt\": \"2026-10-30T07:00:00Z\", \"accuracyMeters\": 10.0}]}";
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
 
         String milestonesJson = """
                 {"milestones": [
@@ -288,7 +304,7 @@ class EndToEndTripIntegrationTest {
                     {"type": "TRIP_END", "actualLatitude": 12.9280, "actualLongitude": 77.6270, "actualTime": "2026-10-30T07:30:00Z"}
                 ]}
                 """;
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
 
         int threadCount = 20;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -302,7 +318,7 @@ class EndToEndTripIntegrationTest {
                 try {
                     startGate.await();
                     MvcResult mvcRes = mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                            .header("X-Tenant-Id", TENANT_A)).andReturn();
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andReturn();
                     int code = mvcRes.getResponse().getStatus();
                     if (code == 201) {
                         createdCount.incrementAndGet();
@@ -326,7 +342,7 @@ class EndToEndTripIntegrationTest {
         assertThat(okCount.get()).isEqualTo(threadCount - 1);
 
         // Verify database history has exactly 1 row
-        mockMvc.perform(get("/api/v1/trips/" + tripId + "/calculations").header("X-Tenant-Id", TENANT_A))
+        mockMvc.perform(get("/api/v1/trips/" + tripId + "/calculations").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)));
     }
@@ -335,11 +351,11 @@ class EndToEndTripIntegrationTest {
     @DisplayName("Concurrency: 20 threads recalculating a CLOSED trip with late pings produce exactly ONE new calculation and ONE adjustment")
     void concurrentRecalculateOnClosedTrip() throws Exception {
         String createTripJson = "{\"officePlannedLatitude\": 12.9279, \"officePlannedLongitude\": 77.6271}";
-        MvcResult res = mockMvc.perform(post("/api/v1/trips").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
+        MvcResult res = mockMvc.perform(post("/api/v1/trips").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
         Long tripId = Long.parseLong(res.getResponse().getHeader("Location").substring(res.getResponse().getHeader("Location").lastIndexOf('/') + 1));
 
         String pingsJson = "{\"pings\": [{\"latitude\": 12.9716, \"longitude\": 77.5946, \"recordedAt\": \"2026-10-30T07:00:00Z\", \"accuracyMeters\": 10.0}]}";
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
 
         String milestonesJson = """
                 {"milestones": [
@@ -347,15 +363,15 @@ class EndToEndTripIntegrationTest {
                     {"type": "TRIP_END", "actualLatitude": 12.9280, "actualLongitude": 77.6270, "actualTime": "2026-10-30T07:30:00Z"}
                 ]}
                 """;
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
 
         // Initial calculate and close invoice
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header("X-Tenant-Id", TENANT_A)).andExpect(status().isCreated());
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice").header("X-Tenant-Id", TENANT_A)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andExpect(status().isOk());
 
         // Upload late valid ping
         String latePing = "{\"pings\": [{\"latitude\": 12.9500, \"longitude\": 77.6000, \"recordedAt\": \"2026-10-30T07:15:00Z\", \"accuracyMeters\": 8.0}]}";
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(latePing));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(latePing));
 
         int threadCount = 20;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -369,7 +385,7 @@ class EndToEndTripIntegrationTest {
                 try {
                     startGate.await();
                     MvcResult mvcRes = mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations")
-                            .header("X-Tenant-Id", TENANT_A)).andReturn();
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andReturn();
                     int code = mvcRes.getResponse().getStatus();
                     if (code == 201) {
                         createdCount.incrementAndGet();
@@ -392,12 +408,12 @@ class EndToEndTripIntegrationTest {
         assertThat(okCount.get()).isEqualTo(threadCount - 1);
 
         // Exactly 2 calculations (initial + recalculation)
-        mockMvc.perform(get("/api/v1/trips/" + tripId + "/calculations").header("X-Tenant-Id", TENANT_A))
+        mockMvc.perform(get("/api/v1/trips/" + tripId + "/calculations").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)));
 
         // Exactly 1 billing adjustment
-        mockMvc.perform(get("/api/v1/trips/" + tripId + "/billing-adjustments").header("X-Tenant-Id", TENANT_A))
+        mockMvc.perform(get("/api/v1/trips/" + tripId + "/billing-adjustments").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)));
     }
@@ -406,11 +422,11 @@ class EndToEndTripIntegrationTest {
     @DisplayName("Concurrency: 10 threads calling close-invoice at once all get 200 with the exact same billed calculation and timestamp")
     void concurrentCloseInvoice() throws Exception {
         String createTripJson = "{\"officePlannedLatitude\": 12.9279, \"officePlannedLongitude\": 77.6271}";
-        MvcResult res = mockMvc.perform(post("/api/v1/trips").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
+        MvcResult res = mockMvc.perform(post("/api/v1/trips").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(createTripJson)).andReturn();
         Long tripId = Long.parseLong(res.getResponse().getHeader("Location").substring(res.getResponse().getHeader("Location").lastIndexOf('/') + 1));
 
         String pingsJson = "{\"pings\": [{\"latitude\": 12.9716, \"longitude\": 77.5946, \"recordedAt\": \"2026-10-30T07:00:00Z\", \"accuracyMeters\": 10.0}]}";
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/pings").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(pingsJson));
 
         String milestonesJson = """
                 {"milestones": [
@@ -418,8 +434,8 @@ class EndToEndTripIntegrationTest {
                     {"type": "TRIP_END", "actualLatitude": 12.9280, "actualLongitude": 77.6270, "actualTime": "2026-10-30T07:30:00Z"}
                 ]}
                 """;
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header("X-Tenant-Id", TENANT_A).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header("X-Tenant-Id", TENANT_A)).andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/milestones").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA).contentType(MediaType.APPLICATION_JSON).content(milestonesJson));
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/calculations").header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andExpect(status().isCreated());
 
         int threadCount = 10;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -432,7 +448,7 @@ class EndToEndTripIntegrationTest {
                 try {
                     startGate.await();
                     MvcResult mvcRes = mockMvc.perform(post("/api/v1/trips/" + tripId + "/close-invoice")
-                            .header("X-Tenant-Id", TENANT_A)).andReturn();
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)).andReturn();
                     results.add(mvcRes);
                 } catch (Exception ignored) {
                 } finally {

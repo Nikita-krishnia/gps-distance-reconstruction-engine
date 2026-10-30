@@ -1,32 +1,37 @@
 package com.example.gpsengine.api;
 
-import com.example.gpsengine.api.dto.CalculationDto;
-import com.example.gpsengine.api.dto.MilestoneDto;
-import com.example.gpsengine.api.dto.PingDto;
 import com.example.gpsengine.api.dto.TripDto;
+import com.example.gpsengine.config.WebMvcConfig;
 import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.TripStatus;
+import com.example.gpsengine.security.CorrelationIdFilter;
+import com.example.gpsengine.security.CurrentUserArgumentResolver;
+import com.example.gpsengine.security.RestAccessDeniedHandler;
+import com.example.gpsengine.security.RestAuthenticationEntryPoint;
+import com.example.gpsengine.security.SecurityConfiguration;
 import com.example.gpsengine.service.CalculationService;
 import com.example.gpsengine.service.TripService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -34,13 +39,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TripController.class)
+@Import({
+        SecurityConfiguration.class,
+        RestAuthenticationEntryPoint.class,
+        RestAccessDeniedHandler.class,
+        CorrelationIdFilter.class,
+        WebMvcConfig.class,
+        CurrentUserArgumentResolver.class
+})
 class TripControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     @MockitoBean
     private TripService tripService;
@@ -49,6 +59,14 @@ class TripControllerTest {
     private CalculationService calculationService;
 
     private static final String TENANT = "tenant-alpha";
+
+    private RequestPostProcessor asOperator() {
+        return jwt().jwt(builder -> builder
+                .subject("100")
+                .claim("tenant", TENANT)
+                .claim("role", "OPERATOR")
+        ).authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"));
+    }
 
     @Test
     @DisplayName("POST /trips creates trip and sets Location header")
@@ -66,7 +84,7 @@ class TripControllerTest {
                 """;
 
         mockMvc.perform(post("/api/v1/trips")
-                        .header("X-Tenant-Id", TENANT)
+                        .with(asOperator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -77,25 +95,39 @@ class TripControllerTest {
     }
 
     @Test
-    @DisplayName("Missing X-Tenant-Id header returns 400 with standard error envelope")
-    void missingTenantHeaderReturns400() throws Exception {
+    @DisplayName("Missing authentication token returns 401 UNAUTHENTICATED with standard error envelope")
+    void missingTokenReturns401() throws Exception {
         mockMvc.perform(post("/api/v1/trips")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"officePlannedLatitude\": 12.0, \"officePlannedLongitude\": 77.0}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code", is("MISSING_HEADER")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code", is("UNAUTHENTICATED")))
                 .andExpect(jsonPath("$.correlationId").exists());
     }
 
     @Test
-    @DisplayName("Invalid X-Tenant-Id pattern returns 400")
-    void invalidTenantHeaderPatternReturns400() throws Exception {
+    @DisplayName("Client header X-Tenant-Id is ignored and token's tenant claim is used")
+    void clientTenantHeaderIgnoredAndUsesTokenTenant() throws Exception {
+        TripDto.TripResponse mockResponse = new TripDto.TripResponse(
+                42L, TripStatus.NEW, BillingStatus.OPEN, Instant.now()
+        );
+        when(tripService.createTrip(any(), eq(TENANT))).thenReturn(mockResponse);
+
+        String body = """
+                {
+                  "officePlannedLatitude": 12.9279,
+                  "officePlannedLongitude": 77.6271
+                }
+                """;
+
         mockMvc.perform(post("/api/v1/trips")
-                        .header("X-Tenant-Id", "invalid tenant with spaces!")
+                        .with(asOperator())
+                        .header("X-Tenant-Id", "malicious-spoofed-tenant")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"officePlannedLatitude\": 12.0, \"officePlannedLongitude\": 77.0}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code", is("INVALID_ARGUMENT")));
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        verify(tripService).createTrip(any(), eq(TENANT));
     }
 
     @Test
@@ -109,7 +141,7 @@ class TripControllerTest {
                 """;
 
         mockMvc.perform(post("/api/v1/trips")
-                        .header("X-Tenant-Id", TENANT)
+                        .with(asOperator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
@@ -136,7 +168,7 @@ class TripControllerTest {
                 """, sensitiveCoord);
 
         mockMvc.perform(post("/api/v1/trips/1/milestones")
-                        .header("X-Tenant-Id", TENANT)
+                        .with(asOperator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
@@ -152,7 +184,7 @@ class TripControllerTest {
                 .thenThrow(new RuntimeException("secret 12.345678,77.1 failure in database connection"));
 
         mockMvc.perform(post("/api/v1/trips/1/calculations")
-                        .header("X-Tenant-Id", TENANT))
+                        .with(asOperator()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code", is("INTERNAL_ERROR")))
                 .andExpect(jsonPath("$.message", is("Unexpected error occurred")))
@@ -164,7 +196,7 @@ class TripControllerTest {
     @DisplayName("Non-numeric tripId parameter returns 400 TYPE_MISMATCH")
     void nonNumericTripIdReturns400() throws Exception {
         mockMvc.perform(get("/api/v1/trips/abc")
-                        .header("X-Tenant-Id", TENANT))
+                        .with(asOperator()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code", is("TYPE_MISMATCH")));
     }
@@ -173,7 +205,7 @@ class TripControllerTest {
     @DisplayName("Unsupported HTTP method returns 405 METHOD_NOT_ALLOWED")
     void unsupportedMethodReturns405() throws Exception {
         mockMvc.perform(post("/api/v1/trips/1/billing-adjustments")
-                        .header("X-Tenant-Id", TENANT))
+                        .with(asOperator()))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code", is("METHOD_NOT_ALLOWED")));
     }

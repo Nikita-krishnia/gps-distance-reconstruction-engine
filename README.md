@@ -23,6 +23,32 @@ docker compose ps
 > [!NOTE]
 > `spring.jpa.hibernate.ddl-auto=update` is currently configured in `application.properties` as a temporary convenience during early prototyping. This trade-off will be replaced with production-grade, versioned migrations (Flyway) in a later batch.
 
+## Environment & Security Setup
+
+The application enforces HMAC-SHA256 JWT authentication. Before starting the server, ensure `JWT_SECRET` is configured with a cryptographically random secret of at least 32 bytes (256 bits).
+
+### 1. Generate JWT Secret (PowerShell)
+```powershell
+$bytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$secret = [Convert]::ToBase64String($bytes)
+Write-Host "JWT_SECRET=$secret"
+```
+Copy the generated string into your `.env` file under `JWT_SECRET`.
+
+### 2. User Seeding (Local Development & Testing)
+To populate baseline test accounts on startup, configure the following in `.env`:
+```env
+AUTH_SEED_ENABLED=true
+SEED_PASSWORD=YourStrongPassword123! # Must be at least 12 characters
+```
+
+When enabled, `DatabaseUserSeeder` seeds the following accounts (all with password `$SEED_PASSWORD`):
+- `admin-a` — Role: `ADMIN`, Tenant: `tenant-a`
+- `operator-a` — Role: `OPERATOR`, Tenant: `tenant-a`
+- `employee-a` — Role: `EMPLOYEE`, Tenant: `tenant-a`, `employeeRef`: `emp-001`
+- `operator-b` — Role: `OPERATOR`, Tenant: `tenant-b` (for cross-tenant boundary verification)
+
 ## How to Run the Application
 
 To run the application locally on port 8081:
@@ -31,7 +57,7 @@ To run the application locally on port 8081:
 .\mvnw.cmd spring-boot:run
 ```
 
-Verify the service status:
+Verify the service status (public endpoint):
 
 ```powershell
 curl.exe http://localhost:8081/api/v1/hello
@@ -55,12 +81,92 @@ The core mathematical, GPS cleaning, anchor merging, distance calculation engine
 .\mvnw.cmd test -Dtest="com.example.gpsengine.routing.*Test"
 ```
 
-### 2. Full Test Suite (Requires Docker Desktop)
-Runs all 93 active tests (engine tests, routing tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
+### 2. Security Slice & Unit Tests
+Tests covering JWT minting, claim validation, signature tampering, expiration, BCrypt timing protection, and role access matrices:
+
+```powershell
+.\mvnw.cmd test -Dtest="com.example.gpsengine.security.*Test"
+```
+
+### 3. Full Test Suite (Requires Docker Desktop)
+Runs all 191 active tests (engine, routing, security unit & slice tests, web slice tests, and full end-to-end integration tests with concurrent calculations and PostgreSQL row-locking in Testcontainers):
 
 ```powershell
 .\mvnw.cmd test
 ```
+
+## Authentication, Roles & Tenant Isolation
+
+All trip endpoints require authentication via Bearer JSON Web Tokens (JWT) signed using HMAC-SHA256 (`HS256`).
+
+### Authentication Flow Walkthrough (PowerShell + curl.exe)
+
+```powershell
+# 1. Login as operator-a to obtain an access token
+$loginPayload = '{"username":"operator-a","password":"YourStrongPassword123!"}'
+$loginResp = curl.exe -s -H "Content-Type: application/json" -d $loginPayload http://localhost:8081/api/v1/auth/login
+$token = ($loginResp | ConvertFrom-Json).accessToken
+
+# 2. Access authorized trip endpoints with Bearer token
+curl.exe -s -i -H "Authorization: Bearer $token" http://localhost:8081/api/v1/trips
+```
+
+### Role Matrix
+
+| Endpoint | Method | Public | EMPLOYEE | OPERATOR | ADMIN |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| `/api/v1/auth/login` | `POST` | Yes | Yes | Yes | Yes |
+| `/api/v1/hello` | `GET` | Yes | Yes | Yes | Yes |
+| `/api/v1/trips` | `POST` | No | 403 Forbidden | 201 Created | 201 Created |
+| `/api/v1/trips/{id}/pings` | `POST` | No | 403 Forbidden | 201 Created | 201 Created |
+| `/api/v1/trips/{id}/milestones` | `POST` | No | 403 Forbidden | 201 Created | 201 Created |
+| `/api/v1/trips/{id}/calculations` | `POST` | No | 403 Forbidden | 201 / 200 OK | 201 / 200 OK |
+| `/api/v1/trips/{id}/close-invoice` | `POST` | No | 403 Forbidden | 403 Forbidden | 200 OK |
+| `/api/v1/trips/{id}` | `GET` | No | Reduced Summary* | 200 OK (Full) | 200 OK (Full) |
+| `/api/v1/trips/{id}/calculations` | `GET` | No | 403 Forbidden | 200 OK | 200 OK |
+| `/api/v1/trips/{id}/calculations/{calcId}/segments` | `GET` | No | 403 Forbidden | 200 OK | 200 OK |
+| `/api/v1/trips/{id}/billing-adjustments` | `GET` | No | 403 Forbidden | 200 OK | 200 OK |
+
+*\* Note on Employee Access:*
+- An `EMPLOYEE` may only call `GET /api/v1/trips/{id}` for trips in which they participated (i.e. where a milestone exists with their matching `employeeRef`).
+- The response returns a privacy-safe `EmployeeTripSummaryResponse` containing only `id`, `status`, `createdAt`, and `latestTotalKm`.
+- Billed amounts, adjustment ledgers, raw coordinates, route segments, and internal margins are shielded from employees.
+- Probing a trip where the employee did not participate returns `404 RESOURCE_NOT_FOUND`.
+
+### JWT Claims Structure
+
+Each minted token is signed with HS256 and carries the following claims:
+- `sub`: The internal user ID (String).
+- `tenant`: The tenant identifier (must match `^[a-zA-Z0-9_-]{1,64}$`).
+- `role`: Role enum value (`EMPLOYEE`, `OPERATOR`, `ADMIN`).
+- `employeeRef`: Opaque reference to the employee (strictly required for `EMPLOYEE`, omitted for others).
+- `iss`: Issuer string (`gps-distance-engine`).
+- `iat`: Epoch timestamp of issuance.
+- `exp`: Epoch expiration timestamp (`iat + 15 minutes`).
+- `jti`: Unique UUID preventing replay confusion.
+
+### Three Layers of Multi-Tenant Isolation
+
+1. **Token Cryptographic Validation Layer:**
+   - Spring Security Resource Server decodes the token with Nimbus using the symmetric `SecretKey`.
+   - `JwtClaimsValidator` strictly validates that the `tenant` matches allowed patterns, the `role` is recognized, and `employeeRef` is present if and only if role is `EMPLOYEE`.
+   - Missing or invalid tokens produce `401 UNAUTHENTICATED` with `WWW-Authenticate: Bearer`.
+2. **Controller Parameter Resolution Layer:**
+   - Client-provided `X-Tenant-Id` headers are completely disregarded.
+   - `CurrentUserArgumentResolver` extracts an immutable `CurrentUser` record directly from the verified `Jwt` authentication token and injects it into controller handler methods.
+3. **Database Scoping & Silent 404:**
+   - Every service and repository operation scopes queries by the caller's tenant ID (`findByIdAndTenantId`).
+   - If an authenticated user queries a trip that belongs to a different tenant, the API returns `404 RESOURCE_NOT_FOUND` (identical to querying a non-existent ID). It **never** returns `403 ACCESS_DENIED`, which would confirm the existence of a resource in another tenant's domain.
+
+### Security Trade-offs
+
+| Dimension | Policy / Choice | Trade-off Rationale |
+| :--- | :--- | :--- |
+| **HS256 vs RS256** | Symmetric HS256 | Chosen for low latency and zero external key-management overhead in a self-contained service. RS256 with JWKS is the planned evolution when multiple decoupled edge services verify tokens. |
+| **Short TTL (15 min) vs Refresh Tokens** | 15-minute TTL, No Refresh Tokens | Stateless token design eliminates database refresh token lookup latency and storage overhead. Compromised tokens have a tightly bounded 15-minute exposure window. |
+| **Stateless Validation vs User Deactivation** | 100% Stateless JWT Decoding | Because JWT validation does not query the database on every HTTP request, a deactivated user's previously issued token remains valid until its 15-minute TTL expires. This is an intentional scalability decision. |
+| **Seeded Users vs Self-Registration** | Controlled Seeding / Admin Provisioning | Public self-service registration is omitted to prevent arbitrary unauthorized tenant creation. |
+| **Timing Attack Mitigation** | Dummy BCrypt Check | When a login attempt specifies a non-existent or disabled username, a dummy BCrypt hash verification is performed to ensure constant response times and defeat username enumeration. |
 
 ## Routing Providers, Caching & Circuit Breaker
 
@@ -111,72 +217,67 @@ Distance reconstruction guarantees strict consistency and ledger auditability us
 
 ## REST API Reference
 
-> [!IMPORTANT]
-> **Authentication Notice:** The `X-Tenant-Id` header is a multi-tenancy discriminator and **NOT** a real authentication mechanism. Secure JWT-based authentication and role-based access control will be implemented in Batch 10.
-
-Every endpoint requires the header `X-Tenant-Id: <tenant-id>` (1 to 64 alphanumeric characters, dashes, or underscores). If omitted or invalid, the API returns `400 Bad Request`.
+Every endpoint (except `/api/v1/auth/login` and `/api/v1/hello`) requires the HTTP header `Authorization: Bearer <token>`. Omission or invalidity of the token returns `401 UNAUTHENTICATED`.
 
 ### Endpoints Overview
 
-| Method | Endpoint | Status | Description & Validation |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/trips` | `201 Created` | Creates a new trip. Body requires `officePlannedLatitude` (-90..90) and `officePlannedLongitude` (-180..180). Returns `id`, `status: NEW`, `billingStatus: OPEN`, `createdAt`. Sets `Location: /api/v1/trips/{id}`. |
-| `POST` | `/api/v1/trips/{id}/pings` | `201 Created` | Uploads 1 to 10,000 raw GPS pings (`latitude`, `longitude`, `recordedAt`, optional `accuracyMeters` >= 0). Stores raw data without cleaning. Returns `{ "accepted": n }`. |
-| `POST` | `/api/v1/trips/{id}/milestones` | `201 Created` | Uploads 1 to 500 milestones (`TRIP_START`, `PICKUP`, `DROP`, `NO_SHOW`, `TRIP_END`). `employeeRef` required for pickups/drops/no-shows (letters, numbers, `_`, `-` only). Coordinates must be paired. Returns `{ "accepted": n }`. |
-| `POST` | `/api/v1/trips/{id}/calculations` | `201 Created` / `200 OK` | Runs idempotent 3-phase calculation. Returns `201 Created` for fresh calculations; returns `200 OK` with `reused: true` if timeline fingerprint matches existing calculation. If trip is `CLOSED`, recalculation generates a ledgered `BillingAdjustment`. |
-| `POST` | `/api/v1/trips/{id}/close-invoice` | `200 OK` | Closes billing for trip. Locks the latest `CALCULATED` distance as `billedCalculation`. Subsequent calls are idempotent (`200 OK`). Returns 409 if latest calculation is `DEGRADED` or if data changed since last calculation. |
-| `GET` | `/api/v1/trips/{id}` | `200 OK` | Retrieves trip overview, total ping count, milestone count, latest calculation summary, `billedMeters`, `adjustmentsTotalMeters`, and `payableMeters`. |
-| `GET` | `/api/v1/trips/{id}/calculations` | `200 OK` | Retrieves chronological history of calculations for the trip, newest first. |
-| `GET` | `/api/v1/trips/{id}/calculations/{calcId}/segments` | `200 OK` | Retrieves ordered list of reconstructed segments with meters, rules, and privacy-safe explanation reasons. |
-| `GET` | `/api/v1/trips/{id}/billing-adjustments` | `200 OK` | Retrieves billing adjustments history for the trip, newest first. |
+| Method | Endpoint | Required Role | Description & Validation |
+| :--- | :--- | :---: | :--- |
+| `POST` | `/api/v1/auth/login` | Public | Authenticates user credentials (`username`, `password`) and issues an HS256 JWT access token valid for 15 minutes. |
+| `GET` | `/api/v1/hello` | Public | Basic service health verification endpoint. |
+| `POST` | `/api/v1/trips` | `OPERATOR`, `ADMIN` | Creates a new trip. Body requires `officePlannedLatitude` (-90..90) and `officePlannedLongitude` (-180..180). Returns `id`, `status: NEW`, `billingStatus: OPEN`, `createdAt`. Sets `Location: /api/v1/trips/{id}`. |
+| `POST` | `/api/v1/trips/{id}/pings` | `OPERATOR`, `ADMIN` | Uploads 1 to 10,000 raw GPS pings (`latitude`, `longitude`, `recordedAt`, optional `accuracyMeters` >= 0). Stores raw data without cleaning. Returns `{ "accepted": n }`. |
+| `POST` | `/api/v1/trips/{id}/milestones` | `OPERATOR`, `ADMIN` | Uploads 1 to 500 milestones (`TRIP_START`, `PICKUP`, `DROP`, `NO_SHOW`, `TRIP_END`). `employeeRef` required for pickups/drops/no-shows (letters, numbers, `_`, `-` only). Coordinates must be paired. Returns `{ "accepted": n }`. |
+| `POST` | `/api/v1/trips/{id}/calculations` | `OPERATOR`, `ADMIN` | Runs idempotent 3-phase calculation. Returns `201 Created` for fresh calculations; returns `200 OK` with `reused: true` if timeline fingerprint matches existing calculation. If trip is `CLOSED`, recalculation generates a ledgered `BillingAdjustment`. |
+| `POST` | `/api/v1/trips/{id}/close-invoice` | `ADMIN` only | Closes billing for trip. Locks the latest `CALCULATED` distance as `billedCalculation`. Subsequent calls are idempotent (`200 OK`). Returns 409 if latest calculation is `DEGRADED` or if data changed since last calculation. |
+| `GET` | `/api/v1/trips/{id}` | `OPERATOR`, `ADMIN`, `EMPLOYEE`* | Retrieves trip overview. Returns full details for Operator/Admin; returns reduced summary for participating Employee (`id`, `status`, `createdAt`, `latestTotalKm`). |
+| `GET` | `/api/v1/trips/{id}/calculations` | `OPERATOR`, `ADMIN` | Retrieves chronological history of calculations for the trip, newest first. |
+| `GET` | `/api/v1/trips/{id}/calculations/{calcId}/segments` | `OPERATOR`, `ADMIN` | Retrieves ordered list of reconstructed segments with meters, rules, and privacy-safe explanation reasons. |
+| `GET` | `/api/v1/trips/{id}/billing-adjustments` | `OPERATOR`, `ADMIN` | Retrieves billing adjustments history for the trip, newest first. |
 
-### Closed-Invoice & Billing Adjustment Walkthrough
+### End-to-End Walkthrough (PowerShell + curl.exe)
 
-Demonstrating idempotent calculation, invoice closure, and signed delta ledger adjustment:
+Demonstrating authentication, trip creation, milestone uploads, calculation, and invoice closure:
 
 ```powershell
-# 1. Create a trip
+# 1. Login as operator-a to obtain an access token
+$loginBody = '{"username":"operator-a","password":"YourStrongPassword123!"}'
+$tokenResp = curl.exe -s -H "Content-Type: application/json" -d $loginBody http://localhost:8081/api/v1/auth/login
+$opToken = ($tokenResp | ConvertFrom-Json).accessToken
+
+# 2. Create a trip
+$createTripBody = '{"officePlannedLatitude": 12.9279, "officePlannedLongitude": 77.6271}'
 curl.exe -s -i -X POST http://localhost:8081/api/v1/trips `
-  -H "Content-Type: application/json" -H "X-Tenant-Id: tenant-alpha" `
-  -d '{"officePlannedLatitude": 12.9279, "officePlannedLongitude": 77.6271}'
+  -H "Content-Type: application/json" -H "Authorization: Bearer $opToken" `
+  -d $createTripBody
 
-# 2. Upload raw GPS pings and milestones
+# 3. Upload raw GPS pings and milestones
+$pingsBody = '{"pings": [{"latitude": 12.9716, "longitude": 77.5946, "recordedAt": "2026-10-30T07:00:00Z", "accuracyMeters": 10.0}]}'
 curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/pings `
-  -H "Content-Type: application/json" -H "X-Tenant-Id: tenant-alpha" `
-  -d '{"pings": [{"latitude": 12.9716, "longitude": 77.5946, "recordedAt": "2026-10-30T07:00:00Z", "accuracyMeters": 10.0}]}'
+  -H "Content-Type: application/json" -H "Authorization: Bearer $opToken" `
+  -d $pingsBody
 
+$milestonesBody = '{"milestones": [{"type": "TRIP_START", "actualTime": "2026-10-30T07:00:00Z"}, {"type": "TRIP_END", "actualLatitude": 12.9280, "actualLongitude": 77.6270, "actualTime": "2026-10-30T07:30:00Z"}]}'
 curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/milestones `
-  -H "Content-Type: application/json" -H "X-Tenant-Id: tenant-alpha" `
-  -d '{"milestones": [{"type": "TRIP_START", "actualTime": "2026-10-30T07:00:00Z"}, {"type": "TRIP_END", "actualLatitude": 12.9280, "actualLongitude": 77.6270, "actualTime": "2026-10-30T07:30:00Z"}]}'
+  -H "Content-Type: application/json" -H "Authorization: Bearer $opToken" `
+  -d $milestonesBody
 
-# 3. Calculate distance (First run -> 201 Created, totalMeters=7762)
+# 4. Calculate distance (First run -> 201 Created, totalMeters=7762)
 curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/calculations `
-  -H "X-Tenant-Id: tenant-alpha"
+  -H "Authorization: Bearer $opToken"
 
-# 4. Calculate again (Idempotent reuse -> 200 OK, reused=true, totalMeters=7762)
-curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/calculations `
-  -H "X-Tenant-Id: tenant-alpha"
-
-# 5. Close invoice (200 OK, billedMeters=7762, billedKm=7.762)
+# 5. Operator attempts to close invoice (403 ACCESS_DENIED)
 curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
-  -H "X-Tenant-Id: tenant-alpha"
+  -H "Authorization: Bearer $opToken"
 
-# 6. Late GPS ping arrives after invoice closed
-curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/pings `
-  -H "Content-Type: application/json" -H "X-Tenant-Id: tenant-alpha" `
-  -d '{"pings": [{"latitude": 12.9500, "longitude": 77.6100, "recordedAt": "2026-10-30T07:15:00Z", "accuracyMeters": 8.0}]}'
+# 6. Login as admin-a to close invoice
+$adminLoginBody = '{"username":"admin-a","password":"YourStrongPassword123!"}'
+$adminTokenResp = curl.exe -s -H "Content-Type: application/json" -d $adminLoginBody http://localhost:8081/api/v1/auth/login
+$adminToken = ($adminTokenResp | ConvertFrom-Json).accessToken
 
-# 7. Recalculate closed trip (201 Created, totalMeters=7765, adjustment deltaMeters=+3)
-curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/calculations `
-  -H "X-Tenant-Id: tenant-alpha"
-
-# 8. Inspect trip details (billedMeters=7762, adjustmentsTotalMeters=3, payableMeters=7765)
-curl.exe -s -i http://localhost:8081/api/v1/trips/1 `
-  -H "X-Tenant-Id: tenant-alpha"
-
-# 9. Inspect billing adjustment ledger history
-curl.exe -s -i http://localhost:8081/api/v1/trips/1/billing-adjustments `
-  -H "X-Tenant-Id: tenant-alpha"
+# 7. Close invoice as admin (200 OK, billedMeters=7762, billedKm=7.762)
+curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
+  -H "Authorization: Bearer $adminToken"
 ```
 
 ## Known Limitations & Trade-offs
@@ -185,14 +286,14 @@ curl.exe -s -i http://localhost:8081/api/v1/trips/1/billing-adjustments `
 - **Single-Instance Recompute Worker:** `DegradedTripRecomputeJob` is optimized for single-instance execution. While fully concurrent-safe across multiple nodes (enforced by PostgreSQL row locks and unique constraints), distributed leader election or `FOR UPDATE SKIP LOCKED` is omitted for simplicity.
 - **Identity Key Generation:** JPA entities use `GenerationType.IDENTITY`, which disables Hibernate JDBC batch inserts on `saveAll()`. This is an accepted simplicity trade-off for prototyping and will be revisited if write throughput becomes a bottleneck in Batch 12 benchmarks.
 
-## Status: Batch 9 (Idempotent Recompute, Invoices & Concurrency)
+## Status: Batch 10 (Authentication, Roles & Tenant Isolation)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
 | **REST Controllers & DTOs** | Controllers in `api`, DTO records, no entities exposed | `TripController` and clean Java record DTOs with Bean Validation | Matched |
-| **Multi-Tenancy Isolation** | Enforce `X-Tenant-Id` header, tenant-scoped lookups, cross-tenant 404 | Tenant validation, `findByIdAndTenantId`, strict cross-tenant 404 | Matched |
+| **Multi-Tenancy Isolation** | Tenant scoping extracted from verified JWT, silent cross-tenant 404 | `CurrentUserArgumentResolver`, `findByIdAndTenantId`, cross-tenant 404 | Matched |
 | **3-Phase Calculation Service** | Read Tx -> CPU/Routing (No Tx) -> Write Tx; no holding locks across HTTP | `CalculationService` + `TripDataPersistenceService` using separate beans | Matched |
 | **Timeline Canonical Fingerprint** | Canonical SHA-256 binary hash over post-cleaning timeline, config & rule version | `TimelineFingerprint` (Double.doubleToLongBits, epoch sec+nano, lengths) | Matched |
 | **Three-Layer Concurrency Control** | PESSIMISTIC_WRITE row lock, unique DB constraints, optimistic `@Version` | Handled via `TripRepository`, PostgreSQL unique constraints, `@Version` | Matched |
@@ -200,5 +301,5 @@ curl.exe -s -i http://localhost:8081/api/v1/trips/1/billing-adjustments `
 | **Invoice Closing & Audit Ledger** | `POST /close-invoice`, immutable billed baseline, signed delta adjustments | `closeInvoice` endpoint, `BillingAdjustment` ledger, signed deltas | Matched |
 | **Automatic Recomputation Job** | Background worker recomputing `DEGRADED` trips when provider recovers | `DegradedTripRecomputeJob` with circuit breaker gate & thread-safe stats | Matched |
 | **Rule Drift Golden Test** | Freeze 2026.1 rules and assert exact sequence, meters, reasons & total | `RuleDriftGuardGoldenTest` (exact meters & 100-run determinism) | Matched |
-| **Security & Authentication** | JWT-based auth replacing temporary X-Tenant-Id header | **PLANNED (Batch 10)** | Planned |
+| **Security & Authentication** | Stateless JWT (HS256) via Nimbus, Spring Security, BCrypt, RBAC | `SecurityConfiguration`, `JwtService`, `AuthService`, role matrices | Matched |
 | **Metrics & Observability** | Micrometer, Actuator, Prometheus metrics binding | **PLANNED (Batch 13)** | Planned |
