@@ -68,32 +68,39 @@ Expected output:
 {"status":"UP","service":"gps-distance-engine"}
 ```
 
-## How to Test
+## Testing & Verification
 
-### 1. Engine & Routing Tests (Fast, Plain Java, No Docker Required)
-The core mathematical, GPS cleaning, anchor merging, distance calculation engine, routing providers, caching, and circuit breaker run without Docker or Spring context:
+The project includes an extensive automated test suite of **222 tests** across 38 test classes, categorised using JUnit 5 `@Tag` annotations.
 
-```powershell
-# Engine tests (44 tests)
-.\mvnw.cmd test -Dtest="com.example.gpsengine.engine.*Test"
+See the complete testing guide in [`docs/TESTING.md`](docs/TESTING.md) and the rule matrix in [`docs/REQUIREMENTS_TRACEABILITY.md`](docs/REQUIREMENTS_TRACEABILITY.md).
 
-# Routing tests (43 tests, 1 optional live test skipped by default)
-.\mvnw.cmd test -Dtest="com.example.gpsengine.routing.*Test"
-```
+### Test Categories & Execution Commands (PowerShell)
 
-### 2. Security Slice & Unit Tests
-Tests covering JWT minting, claim validation, signature tampering, expiration, BCrypt timing protection, and role access matrices:
+- **Pure Unit Tests (`@Tag("unit")`, 116 tests):** Plain-Java tests for GPS cleaning, anchor builder, timeline merging, distance engine rules, Caffeine cache, circuit breaker, and 200 randomised trip seeds. Runs in milliseconds without Spring or Docker:
+  ```powershell
+  .\mvnw.cmd test "-Dgroups=unit"
+  ```
+- **Integration Tests (`@Tag("integration")`, 106 tests, 1 skipped):** Full Spring context, JPA repositories, database constraints, REST API controllers, and JWT authentication matrix against a real PostgreSQL container:
+  ```powershell
+  .\mvnw.cmd test "-Dgroups=integration"
+  ```
+- **Concurrency Tests (`@Tag("concurrency")`, 4 tests):** Multithreaded stress testing (50-thread cache stampede, 20-thread simultaneous calculations, invoice close vs calculate race):
+  ```powershell
+  .\mvnw.cmd test "-Dgroups=concurrency"
+  ```
+- **Failure Injection Tests (`@Tag("failure-injection")`, 9 tests):** Upstream routing outages, socket timeouts, circuit breaker trips, cache poisoning prevention, and recovery:
+  ```powershell
+  .\mvnw.cmd test "-Dgroups=failure-injection"
+  ```
+- **Full Test Suite (All 222 tests):**
+  ```powershell
+  .\mvnw.cmd test
+  ```
 
-```powershell
-.\mvnw.cmd test -Dtest="com.example.gpsengine.security.*Test"
-```
-
-### 3. Full Test Suite (Requires Docker Desktop)
-Runs all 191 active tests (engine, routing, security unit & slice tests, web slice tests, and full end-to-end integration tests with concurrent calculations and PostgreSQL row-locking in Testcontainers):
-
-```powershell
-.\mvnw.cmd test
-```
+### What Is NOT Tested
+- **Live Public OSRM Server:** The smoke test against `router.project-osrm.org` (`OsrmLiveSmokeTest`) is disabled by default to avoid external rate-limiting. Standard tests use an in-process mock HTTP server or `FakeRoutingProvider`.
+- **10,000-Trip Batch Performance Benchmark:** Scheduled for Batch 12.
+- **External OAuth Identity Providers:** Social login is out of scope; system uses self-contained HS256 JWT tokens.
 
 ## Authentication, Roles & Tenant Isolation
 
@@ -286,7 +293,7 @@ curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
 - **Single-Instance Recompute Worker:** `DegradedTripRecomputeJob` is optimized for single-instance execution. While fully concurrent-safe across multiple nodes (enforced by PostgreSQL row locks and unique constraints), distributed leader election or `FOR UPDATE SKIP LOCKED` is omitted for simplicity.
 - **Identity Key Generation:** JPA entities use `GenerationType.IDENTITY`, which disables Hibernate JDBC batch inserts on `saveAll()`. This is an accepted simplicity trade-off for prototyping and will be revisited if write throughput becomes a bottleneck in Batch 12 benchmarks.
 
-## Status: Batch 10 (Authentication, Roles & Tenant Isolation)
+## Status: Batch 11 (Test Completion, Failure Injection & Requirement Traceability)
 
 ### Implemented vs Planned
 
@@ -302,4 +309,11 @@ curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/close-invoice `
 | **Automatic Recomputation Job** | Background worker recomputing `DEGRADED` trips when provider recovers | `DegradedTripRecomputeJob` with circuit breaker gate & thread-safe stats | Matched |
 | **Rule Drift Golden Test** | Freeze 2026.1 rules and assert exact sequence, meters, reasons & total | `RuleDriftGuardGoldenTest` (exact meters & 100-run determinism) | Matched |
 | **Security & Authentication** | Stateless JWT (HS256) via Nimbus, Spring Security, BCrypt, RBAC | `SecurityConfiguration`, `JwtService`, `AuthService`, role matrices | Matched |
+| **Requirement Traceability** | Traceability matrix covering every rule in PROJECT_BRIEF | [`docs/REQUIREMENTS_TRACEABILITY.md`](docs/REQUIREMENTS_TRACEABILITY.md) (100% TESTED) | Matched |
+| **JUnit 5 Tag Categorisation** | Organised into `unit`, `integration`, `concurrency`, `failure-injection` | Categorised all 38 test classes, documented in [`docs/TESTING.md`](docs/TESTING.md) | Matched |
+| **Failure Injection & Flapping** | 9 failure scenarios: timeouts, provider dropouts, DB rollbacks, breaker flapping | `ComprehensiveFailureInjectionIntegrationTest` | Matched |
+| **Randomised Invariant Tests** | 200 pseudo-random fixed seeds asserting 9 physical invariants | `RandomizedTripInvariantTest` (runs in ~1.0 s) | Matched |
+| **Privacy Redaction Invariant** | Root log capture asserting zero coordinates, employee refs, passwords in logs | `SecurityAndPrivacyRegressionIntegrationTest` + DTO `toString()` redaction | Matched |
+| **Concurrency Stress Testing** | 5 consecutive runs of 50-thread stampede & simultaneous calculation | `AdvancedConcurrencyIntegrationTest` (5/5 passed, 0 flakiness) | Matched |
+| **Benchmark (10,000 trips)** | Throughput benchmark, memory profiling | **PLANNED (Batch 12)** | Planned |
 | **Metrics & Observability** | Micrometer, Actuator, Prometheus metrics binding | **PLANNED (Batch 13)** | Planned |
