@@ -2,6 +2,7 @@ package com.example.gpsengine.routing;
 
 import com.github.benmanes.caffeine.cache.Ticker;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("unit")
 class CachingRoutingProviderTest {
 
     @Test

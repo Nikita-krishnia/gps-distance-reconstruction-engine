@@ -8,6 +8,7 @@ import com.example.gpsengine.engine.PointOrigin;
 import com.example.gpsengine.engine.SegmentConfig;
 import com.example.gpsengine.engine.TripPoint;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -16,6 +17,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("unit")
 class DegradedModeAndRecoveryTest {
 
     private final DistanceEngine engine = new DistanceEngine();

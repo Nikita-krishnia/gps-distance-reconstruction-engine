@@ -1,6 +1,7 @@
 package com.example.gpsengine.routing;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
@@ -14,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the environment variable OSRM_LIVE_TEST=true is explicitly provided.
  */
 @EnabledIfEnvironmentVariable(named = "OSRM_LIVE_TEST", matches = "true")
+@Tag("integration")
 class OsrmLiveSmokeTest {
 
     @Test

@@ -1,12 +1,14 @@
 package com.example.gpsengine.security;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("unit")
 class PasswordEncoderTest {
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);

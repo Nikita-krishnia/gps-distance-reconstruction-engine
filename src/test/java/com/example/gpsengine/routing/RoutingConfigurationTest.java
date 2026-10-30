@@ -2,11 +2,13 @@ package com.example.gpsengine.routing;
 
 import com.example.gpsengine.config.RoutingConfiguration;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("integration")
 class RoutingConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()

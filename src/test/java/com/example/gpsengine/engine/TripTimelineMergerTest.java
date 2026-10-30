@@ -1,6 +1,7 @@
 package com.example.gpsengine.engine;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -11,6 +12,7 @@ import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("unit")
 class TripTimelineMergerTest {
 
     private final TripTimelineMerger merger = new TripTimelineMerger();

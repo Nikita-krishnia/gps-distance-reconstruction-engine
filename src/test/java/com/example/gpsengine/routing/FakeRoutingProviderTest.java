@@ -2,6 +2,7 @@ package com.example.gpsengine.routing;
 
 import com.example.gpsengine.engine.HaversineCalculator;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -14,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
+@Tag("unit")
 class FakeRoutingProviderTest {
 
     @Test

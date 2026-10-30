@@ -4,6 +4,7 @@ import com.example.gpsengine.repository.BillingAdjustmentRepository;
 import com.example.gpsengine.repository.DistanceCalculationRepository;
 import com.example.gpsengine.repository.TripRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -18,6 +19,7 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("integration")
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers

@@ -3,6 +3,7 @@ package com.example.gpsengine.engine;
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.RiderKind;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -11,6 +12,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("unit")
 class AnchorBuilderTest {
 
     private final AnchorBuilder builder = new AnchorBuilder();

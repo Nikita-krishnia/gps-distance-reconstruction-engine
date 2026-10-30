@@ -20,6 +20,7 @@ import com.example.gpsengine.routing.CachingRoutingProvider;
 import com.example.gpsengine.routing.CircuitBreaker;
 import com.example.gpsengine.routing.FakeRoutingProvider;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +40,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
+@Tag("integration")
+@Tag("failure-injection")
 @SpringBootTest(properties = {
         "routing.provider=fake",
         "routing.cache.enabled=true",

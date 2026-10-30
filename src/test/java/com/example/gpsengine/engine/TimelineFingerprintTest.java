@@ -1,6 +1,7 @@
 package com.example.gpsengine.engine;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -10,6 +11,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("unit")
 class TimelineFingerprintTest {
 
     private final String configFingerprint = "clean(acc=50.0,spd=120.0)|anchor(rad=400.0,noshow=false)|seg(gap=70,park=5.0,maxspd=120.0,maxm=100000.0,mul=1.40)|route(prov=fake,cache=true,cell=0.001000,cver=v1)";

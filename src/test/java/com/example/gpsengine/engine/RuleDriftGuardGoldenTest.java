@@ -4,6 +4,7 @@ import com.example.gpsengine.domain.SegmentRule;
 import com.example.gpsengine.routing.RouteResult;
 import com.example.gpsengine.routing.RoutingProvider;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * If this test fails, you changed the business rules or calculation mechanics!
  * You MUST intentionally bump RULE_VERSION and update the expected values here deliberately.
  */
+@Tag("unit")
 class RuleDriftGuardGoldenTest {
 
     @Test

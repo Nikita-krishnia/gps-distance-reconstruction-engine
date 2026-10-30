@@ -3,6 +3,7 @@ package com.example.gpsengine.security;
 import com.example.gpsengine.repository.AppUserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -10,6 +11,7 @@ import org.springframework.core.NestedExceptionUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("integration")
 class SecurityStartupValidationTest {
 
     private final ApplicationContextRunner baseRunner = new ApplicationContextRunner()

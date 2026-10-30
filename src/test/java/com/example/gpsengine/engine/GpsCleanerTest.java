@@ -1,6 +1,7 @@
 package com.example.gpsengine.engine;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -12,6 +13,7 @@ import java.util.Random;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+@Tag("unit")
 class GpsCleanerTest {
 
     private final GpsCleaner cleaner = new GpsCleaner();
