@@ -1,12 +1,17 @@
 package com.example.gpsengine.error;
 
+import jakarta.persistence.PessimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.hibernate.exception.LockTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -22,16 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Centralized exception handler enforcing standardized error envelopes across all REST endpoints.
- *
- * <p>PRIVACY & SECURITY GUARANTEES:
- * <ul>
- *   <li>Error responses and logs NEVER include raw coordinates, employee references, or SQL statements.</li>
- *   <li>Rejected input values are NEVER echoed back in validation field errors.</li>
- *   <li>Internal 500 exceptions log correlationId and exception class name only; stack traces are relegated to DEBUG.</li>
- * </ul>
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -73,6 +68,27 @@ public class GlobalExceptionHandler {
                 HttpStatus.CONFLICT.value(),
                 "CONFLICT",
                 ex.getMessage(),
+                request.getRequestURI(),
+                correlationId
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler({
+            ObjectOptimisticLockingFailureException.class,
+            PessimisticLockingFailureException.class,
+            CannotAcquireLockException.class,
+            PessimisticLockException.class,
+            LockTimeoutException.class
+    })
+    public ResponseEntity<ErrorResponse> handleLockingFailure(Exception ex, HttpServletRequest request) {
+        String correlationId = UUID.randomUUID().toString();
+        log.warn("Concurrent modification / lock timeout [correlationId={}] [path={}]", correlationId, request.getRequestURI());
+        ErrorResponse error = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.CONFLICT.value(),
+                "CONCURRENT_MODIFICATION",
+                "Concurrent modification detected or lock acquisition timed out; please retry",
                 request.getRequestURI(),
                 correlationId
         );
@@ -159,7 +175,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
         String correlationId = UUID.randomUUID().toString();
-        // Do NOT echo body or invalid values
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -244,7 +259,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
         String correlationId = UUID.randomUUID().toString();
-        // Log correlationId, exception class, path at ERROR. Never log exception message or values.
         log.error("Unhandled exception [correlationId={}] [exception={}] [path={}]",
                 correlationId, ex.getClass().getName(), request.getRequestURI());
         log.debug("Stack trace for [correlationId={}]:", correlationId, ex);
@@ -260,4 +274,3 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }
-

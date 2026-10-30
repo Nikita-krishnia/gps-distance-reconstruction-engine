@@ -6,6 +6,8 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 public class TripDto {
@@ -45,7 +47,24 @@ public class TripDto {
             Instant createdAt,
             long pingCount,
             long milestoneCount,
-            CalculationDto.CalculationSummaryResponse latestCalculation
+            CalculationDto.CalculationSummaryResponse latestCalculation,
+            Long billedCalculationId,
+            Long billedMeters,
+            Long adjustmentsTotalMeters,
+            Long payableMeters,
+            Instant closedAt
     ) {}
-}
 
+    public record CloseInvoiceResponse(
+            Long billedCalculationId,
+            long billedMeters,
+            BigDecimal billedKm,
+            Instant closedAt
+    ) {
+        public static CloseInvoiceResponse from(Long calcId, long meters, Instant closedAt) {
+            BigDecimal km = BigDecimal.valueOf(meters)
+                    .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
+            return new CloseInvoiceResponse(calcId, meters, km, closedAt);
+        }
+    }
+}

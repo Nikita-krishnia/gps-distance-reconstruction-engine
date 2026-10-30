@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 
 /**
  * REST controller exposing endpoints for trip management, ping/milestone ingestion,
- * and distance reconstruction calculations.
+ * distance reconstruction calculations, and invoice closure.
  */
 @RestController
 @RequestMapping("/api/v1/trips")
@@ -90,7 +90,19 @@ public class TripController {
             @PathVariable Long tripId) {
         validateTenantId(tenantId);
         CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(tripId, tenantId.trim());
+        if (response.reused()) {
+            return ResponseEntity.ok(response);
+        }
         return ResponseEntity.status(201).body(response);
+    }
+
+    @PostMapping("/{tripId}/close-invoice")
+    public ResponseEntity<TripDto.CloseInvoiceResponse> closeInvoice(
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @PathVariable Long tripId) {
+        validateTenantId(tenantId);
+        TripDto.CloseInvoiceResponse response = calculationService.closeInvoice(tripId, tenantId.trim());
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{tripId}")
@@ -130,4 +142,3 @@ public class TripController {
         return ResponseEntity.ok(response);
     }
 }
-
