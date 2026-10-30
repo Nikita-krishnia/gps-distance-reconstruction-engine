@@ -26,4 +26,9 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
 
     @Query("SELECT t FROM Trip t WHERE t.status = :status ORDER BY t.createdAt ASC, t.id ASC")
     Page<Trip> findByStatusOrderByCreatedAtAscIdAsc(@Param("status") TripStatus status, Pageable pageable);
+
+    long countByStatus(TripStatus status);
+
+    @Query("SELECT MIN(t.createdAt) FROM Trip t WHERE t.status = :status")
+    Optional<java.time.Instant> findOldestCreatedAtByStatus(@Param("status") TripStatus status);
 }

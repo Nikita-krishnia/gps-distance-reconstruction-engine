@@ -37,7 +37,12 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         request.setAttribute(CORRELATION_ID_ATTRIBUTE, correlationId);
         response.setHeader(CORRELATION_ID_HEADER, correlationId);
 
-        filterChain.doFilter(request, response);
+        org.slf4j.MDC.put("correlationId", correlationId);
+        try {
+            filterChain.doFilter(request, response);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
     }
 
     /**

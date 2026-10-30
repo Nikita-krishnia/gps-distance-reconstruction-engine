@@ -33,6 +33,13 @@ public class CircuitBreaker {
         HALF_OPEN
     }
 
+    @FunctionalInterface
+    public interface TransitionListener {
+        void onTransition(State from, State to);
+    }
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CircuitBreaker.class);
+
     private final int failureThreshold;
     private final Duration openDuration;
     private final Clock clock;
@@ -42,6 +49,25 @@ public class CircuitBreaker {
     private int consecutiveFailures = 0;
     private Instant openedAt = Instant.EPOCH;
     private boolean trialInFlight = false;
+    private volatile TransitionListener transitionListener = null;
+
+    public void setTransitionListener(TransitionListener transitionListener) {
+        this.transitionListener = transitionListener;
+    }
+
+    private void transitionTo(State newState) {
+        if (this.state != newState) {
+            State oldState = this.state;
+            this.state = newState;
+            log.info("Circuit breaker state change [from={}] [to={}]", oldState, newState);
+            TransitionListener listener = this.transitionListener;
+            if (listener != null) {
+                try {
+                    listener.onTransition(oldState, newState);
+                } catch (Exception ignored) {}
+            }
+        }
+    }
 
     public CircuitBreaker(int failureThreshold, Duration openDuration, Clock clock) {
         if (failureThreshold <= 0) {
@@ -97,7 +123,7 @@ public class CircuitBreaker {
             if (state == State.OPEN) {
                 if (Duration.between(openedAt, now).compareTo(openDuration) >= 0) {
                     // Transition to HALF_OPEN to allow exactly one probe call
-                    state = State.HALF_OPEN;
+                    transitionTo(State.HALF_OPEN);
                     trialInFlight = true;
                     return true;
                 } else {
@@ -128,7 +154,7 @@ public class CircuitBreaker {
     private void recordSuccess(boolean isTrial) {
         synchronized (lock) {
             if (isTrial || state == State.HALF_OPEN) {
-                state = State.CLOSED;
+                transitionTo(State.CLOSED);
                 trialInFlight = false;
             }
             consecutiveFailures = 0;
@@ -143,7 +169,7 @@ public class CircuitBreaker {
 
             if (isTrial || state == State.HALF_OPEN) {
                 // Trial call failed; re-open circuit with a fresh timer
-                state = State.OPEN;
+                transitionTo(State.OPEN);
                 openedAt = clock.instant();
                 trialInFlight = false;
                 consecutiveFailures++;
@@ -153,7 +179,7 @@ public class CircuitBreaker {
             if (state == State.CLOSED) {
                 consecutiveFailures++;
                 if (consecutiveFailures >= failureThreshold) {
-                    state = State.OPEN;
+                    transitionTo(State.OPEN);
                     openedAt = clock.instant();
                 }
             }

@@ -21,7 +21,8 @@ import java.util.Objects;
 @Table(
     name = "trip",
     indexes = {
-        @Index(name = "idx_trip_tenant", columnList = "tenant_id")
+        @Index(name = "idx_trip_tenant", columnList = "tenant_id"),
+        @Index(name = "idx_trip_status", columnList = "status")
     }
 )
 public class Trip {

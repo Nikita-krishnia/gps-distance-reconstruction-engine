@@ -36,6 +36,8 @@ import java.util.Optional;
 @Service
 public class TripDataPersistenceService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TripDataPersistenceService.class);
+
     private final TripRepository tripRepository;
     private final GpsPingRepository gpsPingRepository;
     private final TripMilestoneRepository tripMilestoneRepository;
@@ -291,6 +293,7 @@ public class TripDataPersistenceService {
                             deltaMeters
                     );
                     savedAdj = billingAdjustmentRepository.save(adjustment);
+                    log.info("Adjustment created [tripId={}] [deltaMeters={}]", tripId, deltaMeters);
                 }
             }
         }

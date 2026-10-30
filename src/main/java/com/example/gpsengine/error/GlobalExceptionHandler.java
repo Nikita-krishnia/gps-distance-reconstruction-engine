@@ -34,9 +34,23 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private final com.example.gpsengine.monitoring.GpsMetrics metrics;
+
+    public GlobalExceptionHandler() {
+        this(java.util.Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GlobalExceptionHandler(java.util.Optional<com.example.gpsengine.monitoring.GpsMetrics> metrics) {
+        this.metrics = metrics.orElse(null);
+    }
+
     @ExceptionHandler(UnauthenticatedException.class)
     public ResponseEntity<ErrorResponse> handleUnauthenticated(UnauthenticatedException ex, HttpServletRequest request) {
         String correlationId = CorrelationIdFilter.getCorrelationId(request);
+        if (metrics != null) {
+            metrics.recordAuthDenied("401");
+        }
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.UNAUTHORIZED.value(),
@@ -102,6 +116,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleLockingFailure(Exception ex, HttpServletRequest request) {
         String correlationId = CorrelationIdFilter.getCorrelationId(request);
         log.warn("Concurrent modification / lock timeout [correlationId={}] [path={}]", correlationId, request.getRequestURI());
+        if (metrics != null) {
+            metrics.recordConcurrencyConflict();
+        }
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.CONFLICT.value(),
@@ -280,6 +297,10 @@ public class GlobalExceptionHandler {
         log.error("Unhandled exception [correlationId={}] [exception={}] [path={}]",
                 correlationId, ex.getClass().getName(), request.getRequestURI());
         log.debug("Stack trace for [correlationId={}]:", correlationId, ex);
+
+        if (metrics != null) {
+            metrics.recordUnexpectedError();
+        }
 
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),

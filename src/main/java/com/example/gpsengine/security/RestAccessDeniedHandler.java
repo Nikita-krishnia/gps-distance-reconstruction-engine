@@ -24,9 +24,17 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
     private static final Logger log = LoggerFactory.getLogger(RestAccessDeniedHandler.class);
 
     private final ObjectMapper objectMapper;
+    private final com.example.gpsengine.monitoring.GpsMetrics metrics;
 
     public RestAccessDeniedHandler(ObjectMapper objectMapper) {
+        this(objectMapper, java.util.Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestAccessDeniedHandler(ObjectMapper objectMapper,
+                                   java.util.Optional<com.example.gpsengine.monitoring.GpsMetrics> metrics) {
         this.objectMapper = objectMapper;
+        this.metrics = metrics.orElse(null);
     }
 
     @Override
@@ -34,6 +42,9 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                        HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
         log.debug("Access denied: {}", accessDeniedException.getClass().getSimpleName());
+        if (metrics != null) {
+            metrics.recordAuthDenied("403");
+        }
 
         String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(

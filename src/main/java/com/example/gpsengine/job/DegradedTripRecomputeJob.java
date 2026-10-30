@@ -36,6 +36,7 @@ public class DegradedTripRecomputeJob {
     private final CircuitBreaker circuitBreaker;
     private final RecomputeStats stats;
     private final int batchSize;
+    private final java.time.Clock clock;
 
     public DegradedTripRecomputeJob(
             TripDataPersistenceService persistenceService,
@@ -43,11 +44,23 @@ public class DegradedTripRecomputeJob {
             CircuitBreaker circuitBreaker,
             RecomputeStats stats,
             @Value("${recompute.batch-size:50}") int batchSize) {
+        this(persistenceService, calculationService, circuitBreaker, stats, batchSize, java.util.Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DegradedTripRecomputeJob(
+            TripDataPersistenceService persistenceService,
+            CalculationService calculationService,
+            CircuitBreaker circuitBreaker,
+            RecomputeStats stats,
+            @Value("${recompute.batch-size:50}") int batchSize,
+            java.util.Optional<java.time.Clock> clock) {
         this.persistenceService = persistenceService;
         this.calculationService = calculationService;
         this.circuitBreaker = circuitBreaker;
         this.stats = stats;
         this.batchSize = batchSize;
+        this.clock = clock.orElse(java.time.Clock.systemUTC());
     }
 
     @Scheduled(fixedDelayString = "${recompute.interval-seconds:30}000")
@@ -56,48 +69,66 @@ public class DegradedTripRecomputeJob {
     }
 
     public void runOnce() {
-        // Skip run immediately if circuit breaker is OPEN
-        if (circuitBreaker.isOpen()) {
-            stats.recordSkippedRun();
-            log.info("Degraded recompute job skipped: circuit breaker is currently OPEN");
-            return;
-        }
+        String jobRunId = java.util.UUID.randomUUID().toString();
+        org.slf4j.MDC.put("jobRunId", jobRunId);
+        try {
+            stats.recordRun();
 
-        List<Trip> degradedTrips = persistenceService.findDegradedTrips(batchSize);
-        if (degradedTrips.isEmpty()) {
-            return;
-        }
-
-        long attempted = 0;
-        long recovered = 0;
-        long stillDegraded = 0;
-
-        for (Trip trip : degradedTrips) {
-            attempted++;
-            stats.recordAttempt();
-
-            try {
-                CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(
-                        trip.getId(), trip.getTenantId()
-                );
-
-                if (response.status() == TripStatus.CALCULATED) {
-                    recovered++;
-                    stats.recordRecovered();
-                } else if (response.status() == TripStatus.DEGRADED) {
-                    stillDegraded++;
-                    stats.recordStillDegraded();
-                    // Provider is still unhealthy; stop current batch to avoid hammering upstream
-                    log.warn("Recomputation yielded DEGRADED status for trip {}; stopping recompute batch early", trip.getId());
-                    break;
-                }
-            } catch (Exception ex) {
-                log.error("Exception during background recomputation for trip {}: {}", trip.getId(), ex.getClass().getSimpleName());
+            // Skip run immediately if circuit breaker is OPEN
+            if (circuitBreaker.isOpen()) {
+                stats.recordSkippedRun();
+                log.info("Degraded recompute job skipped: circuit breaker is currently OPEN");
+                return;
             }
-        }
 
-        log.info("Degraded recompute run completed [attempted={}] [recovered={}] [stillDegraded={}]",
-                attempted, recovered, stillDegraded);
+            List<Trip> degradedTrips = persistenceService.findDegradedTrips(batchSize);
+            if (degradedTrips.isEmpty()) {
+                stats.recordSuccessRun(clock.instant());
+                return;
+            }
+
+            long attempted = 0;
+            long recovered = 0;
+            long stillDegraded = 0;
+
+            for (Trip trip : degradedTrips) {
+                attempted++;
+                stats.recordAttempt();
+
+                org.slf4j.MDC.put("tripId", String.valueOf(trip.getId()));
+                org.slf4j.MDC.put("tenantId", trip.getTenantId());
+                try {
+                    CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(
+                            trip.getId(), trip.getTenantId()
+                    );
+
+                    if (response.status() == TripStatus.CALCULATED) {
+                        recovered++;
+                        stats.recordRecovered();
+                    } else if (response.status() == TripStatus.DEGRADED) {
+                        stillDegraded++;
+                        stats.recordStillDegraded();
+                        // Provider is still unhealthy; stop current batch to avoid hammering upstream
+                        log.warn("Recomputation yielded DEGRADED status for trip {}; stopping recompute batch early", trip.getId());
+                        break;
+                    }
+                } catch (Exception ex) {
+                    log.error("Exception during background recomputation for trip {}: {}", trip.getId(), ex.getClass().getSimpleName());
+                } finally {
+                    org.slf4j.MDC.remove("tripId");
+                    org.slf4j.MDC.remove("tenantId");
+                }
+            }
+
+            if (stillDegraded == 0) {
+                stats.recordSuccessRun(clock.instant());
+            }
+
+            log.info("Degraded recompute run completed [attempted={}] [recovered={}] [stillDegraded={}]",
+                    attempted, recovered, stillDegraded);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
     }
 }
 

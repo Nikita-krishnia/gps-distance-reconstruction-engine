@@ -57,6 +57,7 @@ public class CalculationService {
     private final GpsCleaningConfig gpsCleaningConfig;
     private final AnchorConfig anchorConfig;
     private final SegmentConfig segmentConfig;
+    private final com.example.gpsengine.monitoring.GpsMetrics metrics;
 
     private final GpsCleaner cleaner = new GpsCleaner();
     private final AnchorBuilder anchorBuilder = new AnchorBuilder();
@@ -70,12 +71,25 @@ public class CalculationService {
             Optional<GpsCleaningConfig> cleaningConfig,
             Optional<AnchorConfig> anchorConfig,
             Optional<SegmentConfig> segmentConfig) {
+        this(persistenceService, routingProvider, configFingerprintService, cleaningConfig, anchorConfig, segmentConfig, Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CalculationService(
+            TripDataPersistenceService persistenceService,
+            RoutingProvider routingProvider,
+            ConfigFingerprintService configFingerprintService,
+            Optional<GpsCleaningConfig> cleaningConfig,
+            Optional<AnchorConfig> anchorConfig,
+            Optional<SegmentConfig> segmentConfig,
+            Optional<com.example.gpsengine.monitoring.GpsMetrics> metrics) {
         this.persistenceService = persistenceService;
         this.routingProvider = routingProvider;
         this.configFingerprintService = configFingerprintService;
         this.gpsCleaningConfig = cleaningConfig.orElseGet(GpsCleaningConfig::defaults);
         this.anchorConfig = anchorConfig.orElseGet(AnchorConfig::defaults);
         this.segmentConfig = segmentConfig.orElseGet(SegmentConfig::defaults);
+        this.metrics = metrics.orElse(null);
     }
 
     public record PipelinePrep(
@@ -119,6 +133,9 @@ public class CalculationService {
                 .map(p -> new GpsPoint(p.getLat(), p.getLon(), p.getRecordedAt(), p.getAccuracyMeters()))
                 .toList();
         CleaningResult cleaningResult = cleaner.clean(rawGpsPoints, gpsCleaningConfig);
+        if (metrics != null) {
+            metrics.recordPingsRemoved(cleaningResult);
+        }
 
         List<MilestoneInput> milestoneInputs = milestones.stream()
                 .map(m -> new MilestoneInput(
@@ -169,8 +186,13 @@ public class CalculationService {
         );
         if (existingCalcOpt.isPresent()) {
             DistanceCalculation existing = existingCalcOpt.get();
-            log.info("Idempotent calculate reuse (Phase 1) [tripId={}] [tenantId={}] [calcId={}]",
-                    tripId, tenantId, existing.getId());
+            Duration duration = Duration.between(startTime, Instant.now());
+            if (metrics != null) {
+                metrics.recordCalculation("reused", duration);
+            }
+            log.info("Calculation finished [tripId={}] [status={}] [segmentCount={}] [totalMeters={}] [providerCalls={}] [cacheHits={}] [durationMs={}] [reused={}]",
+                    tripId, existing.getStatus(), 0, existing.getTotalMeters(),
+                    existing.getRoutingProviderCalls(), existing.getCacheHits(), duration.toMillis(), true);
             return CalculationDto.CalculationResponse.from(
                     existing.getId(),
                     existing.getStatus(),
@@ -186,7 +208,18 @@ public class CalculationService {
         }
 
         // Phase 2: CPU & Routing Pipeline (Outside Database Transaction)
-        DistanceResult distanceResult = distanceEngine.calculate(prep.timeline(), routingProvider, segmentConfig);
+        DistanceResult distanceResult;
+        try {
+            distanceResult = distanceEngine.calculate(prep.timeline(), routingProvider, segmentConfig);
+            if (metrics != null) {
+                metrics.recordSegments(distanceResult.ruleCounts());
+            }
+        } catch (Exception ex) {
+            if (metrics != null) {
+                metrics.recordCalculationFailed();
+            }
+            throw ex;
+        }
 
         // Phase 3: Short Write Transaction with Pessimistic Lock
         TripDataPersistenceService.PersistCalculationOutcome outcome;
@@ -199,6 +232,13 @@ public class CalculationService {
             );
             if (conflictWinner.isPresent()) {
                 DistanceCalculation winner = conflictWinner.get();
+                Duration duration = Duration.between(startTime, Instant.now());
+                if (metrics != null) {
+                    metrics.recordCalculation("reused", duration);
+                }
+                log.info("Calculation finished [tripId={}] [status={}] [segmentCount={}] [totalMeters={}] [providerCalls={}] [cacheHits={}] [durationMs={}] [reused={}]",
+                        tripId, winner.getStatus(), distanceResult.segments().size(), winner.getTotalMeters(),
+                        winner.getRoutingProviderCalls(), winner.getCacheHits(), duration.toMillis(), true);
                 return CalculationDto.CalculationResponse.from(
                         winner.getId(),
                         winner.getStatus(),
@@ -212,12 +252,18 @@ public class CalculationService {
                         null
                 );
             }
+            if (metrics != null) {
+                metrics.recordCalculationFailed();
+            }
             throw ex;
         }
 
         BillingAdjustmentDto.AdjustmentResponse adjustmentDto = null;
         if (outcome.adjustment() != null) {
             BillingAdjustment a = outcome.adjustment();
+            if (metrics != null) {
+                metrics.recordBillingAdjustment(Math.abs(a.getDeltaMeters()));
+            }
             adjustmentDto = BillingAdjustmentDto.AdjustmentResponse.from(
                     a.getId(),
                     a.getOldCalculation().getId(),
@@ -228,9 +274,20 @@ public class CalculationService {
         }
 
         Duration duration = Duration.between(startTime, Instant.now());
-        log.info("Calculation completed [tripId={}] [tenantId={}] [status={}] [reused={}] [totalMeters={}] [providerCalls={}] [durationMillis={}]",
-                tripId, tenantId, outcome.calculation().getStatus(), outcome.reused(),
-                outcome.calculation().getTotalMeters(), outcome.calculation().getRoutingProviderCalls(), duration.toMillis());
+        if (metrics != null) {
+            String statusTag = outcome.calculation().getStatus() == TripStatus.CALCULATED ? "calculated" : "degraded";
+            metrics.recordCalculation(statusTag, duration);
+        }
+
+        if (outcome.calculation().getStatus() == TripStatus.DEGRADED) {
+            log.warn("Calculation resulted in DEGRADED status [tripId={}] [providerCalls={}]",
+                    tripId, outcome.calculation().getRoutingProviderCalls());
+        }
+
+        log.info("Calculation finished [tripId={}] [status={}] [segmentCount={}] [totalMeters={}] [providerCalls={}] [cacheHits={}] [durationMs={}] [reused={}]",
+                tripId, outcome.calculation().getStatus(), distanceResult.segments().size(),
+                outcome.calculation().getTotalMeters(), outcome.calculation().getRoutingProviderCalls(),
+                outcome.calculation().getCacheHits(), duration.toMillis(), outcome.reused());
 
         return CalculationDto.CalculationResponse.from(
                 outcome.calculation().getId(),
@@ -254,8 +311,12 @@ public class CalculationService {
         TripDataPersistenceService.CloseInvoiceOutcome outcome =
                 persistenceService.closeInvoiceUnderLock(tripId, tenantId, prep.inputHash());
 
-        log.info("Invoice closed [tripId={}] [tenantId={}] [billedCalcId={}] [billedMeters={}]",
-                tripId, tenantId, outcome.billedCalculationId(), outcome.billedMeters());
+        if (metrics != null) {
+            metrics.recordInvoiceClosed();
+        }
+
+        log.info("Invoice closed [tripId={}] [billedCalcId={}] [billedMeters={}]",
+                tripId, outcome.billedCalculationId(), outcome.billedMeters());
 
         return TripDto.CloseInvoiceResponse.from(
                 outcome.billedCalculationId(),

@@ -30,6 +30,8 @@ import java.util.List;
 @RequestMapping("/api/v1/trips")
 public class TripController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TripController.class);
+
     private final TripService tripService;
     private final CalculationService calculationService;
 
@@ -43,6 +45,7 @@ public class TripController {
             CurrentUser user,
             @Valid @RequestBody TripDto.CreateTripRequest request) {
         TripDto.TripResponse response = tripService.createTrip(request, user.tenantId());
+        log.info("Trip created: trip_id={}, status={}", response.id(), response.status());
 
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -58,6 +61,7 @@ public class TripController {
             @PathVariable Long tripId,
             @Valid @RequestBody PingDto.UploadPingsRequest request) {
         PingDto.UploadPingsResponse response = tripService.uploadPings(tripId, user.tenantId(), request);
+        log.info("Pings uploaded: trip_id={}, count_accepted={}", tripId, response.accepted());
         return ResponseEntity.status(201).body(response);
     }
 
@@ -67,6 +71,7 @@ public class TripController {
             @PathVariable Long tripId,
             @Valid @RequestBody MilestoneDto.UploadMilestonesRequest request) {
         MilestoneDto.UploadMilestonesResponse response = tripService.uploadMilestones(tripId, user.tenantId(), request);
+        log.info("Milestones uploaded: trip_id={}, count={}", tripId, response.accepted());
         return ResponseEntity.status(201).body(response);
     }
 
@@ -86,6 +91,7 @@ public class TripController {
             CurrentUser user,
             @PathVariable Long tripId) {
         TripDto.CloseInvoiceResponse response = calculationService.closeInvoice(tripId, user.tenantId());
+        log.info("Invoice closed: trip_id={}, billing_status=CLOSED", tripId);
         return ResponseEntity.ok(response);
     }
 

@@ -22,16 +22,28 @@ public class AuthService {
      */
     private static final String DUMMY_BCRYPT_HASH = "$2a$10$7EqJtq98hPqEX7fNZaFWoOhiMtiUoOaVnviq/Lw0Q7uWd0u7vG3rG";
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthService.class);
+
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final com.example.gpsengine.monitoring.GpsMetrics metrics;
 
     public AuthService(AppUserRepository userRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService) {
+        this(userRepository, passwordEncoder, jwtService, java.util.Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuthService(AppUserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       JwtService jwtService,
+                       java.util.Optional<com.example.gpsengine.monitoring.GpsMetrics> metrics) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.metrics = metrics.orElse(null);
     }
 
     @Transactional(readOnly = true)
@@ -45,7 +57,7 @@ public class AuthService {
             // Constant-time execution: perform BCrypt matching against dummy hash so latency
             // does not disclose whether the requested username exists in the database.
             passwordEncoder.matches(password, DUMMY_BCRYPT_HASH);
-            throw new UnauthenticatedException("Invalid credentials");
+            recordLoginFailureAndThrow();
         }
 
         AppUser user = userOpt.get();
@@ -53,13 +65,26 @@ public class AuthService {
 
         // Identical failure response for bad password, unknown user, and disabled user
         if (!passwordMatches || !user.isEnabled()) {
-            throw new UnauthenticatedException("Invalid credentials");
+            recordLoginFailureAndThrow();
+        }
+
+        if (metrics != null) {
+            metrics.recordAuthLogin(true);
         }
 
         String token = jwtService.issueToken(user);
         long expiresInSeconds = jwtService.getTtlMinutes() * 60L;
 
         return new AuthDto.LoginResponse(token, "Bearer", expiresInSeconds);
+    }
+
+    private void recordLoginFailureAndThrow() {
+        String correlationId = org.slf4j.MDC.get("correlationId");
+        log.warn("Login failed [requestId={}]", correlationId != null ? correlationId : "unknown");
+        if (metrics != null) {
+            metrics.recordAuthLogin(false);
+        }
+        throw new UnauthenticatedException("Invalid credentials");
     }
 }
 

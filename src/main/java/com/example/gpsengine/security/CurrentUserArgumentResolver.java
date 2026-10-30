@@ -49,6 +49,13 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
             }
             String employeeRef = jwt.getClaimAsString("employeeRef");
 
+            if (userId != null) {
+                org.slf4j.MDC.put("userId", String.valueOf(userId));
+            }
+            if (tenantId != null && !tenantId.isBlank()) {
+                org.slf4j.MDC.put("tenantId", tenantId);
+            }
+
             return new CurrentUser(userId, tenantId, role, employeeRef);
         }
         return null;

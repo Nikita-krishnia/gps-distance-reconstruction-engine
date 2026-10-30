@@ -25,9 +25,17 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
     private static final Logger log = LoggerFactory.getLogger(RestAuthenticationEntryPoint.class);
 
     private final ObjectMapper objectMapper;
+    private final com.example.gpsengine.monitoring.GpsMetrics metrics;
 
     public RestAuthenticationEntryPoint(ObjectMapper objectMapper) {
+        this(objectMapper, java.util.Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestAuthenticationEntryPoint(ObjectMapper objectMapper,
+                                        java.util.Optional<com.example.gpsengine.monitoring.GpsMetrics> metrics) {
         this.objectMapper = objectMapper;
+        this.metrics = metrics.orElse(null);
     }
 
     @Override
@@ -35,6 +43,9 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
                          HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
         log.debug("Authentication failed: {}", authException.getClass().getSimpleName());
+        if (metrics != null) {
+            metrics.recordAuthDenied("401");
+        }
 
         String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
