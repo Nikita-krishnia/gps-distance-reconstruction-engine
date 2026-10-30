@@ -18,7 +18,9 @@ public class CalculationDto {
             int routingProviderCalls,
             int cacheHits,
             int cacheMisses,
-            Instant createdAt
+            Instant createdAt,
+            boolean reused,
+            BillingAdjustmentDto.AdjustmentResponse adjustment
     ) {
         public static CalculationResponse from(
                 Long id,
@@ -28,7 +30,9 @@ public class CalculationDto {
                 int routingProviderCalls,
                 int cacheHits,
                 int cacheMisses,
-                Instant createdAt
+                Instant createdAt,
+                boolean reused,
+                BillingAdjustmentDto.AdjustmentResponse adjustment
         ) {
             BigDecimal totalKm = BigDecimal.valueOf(totalMeters)
                     .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
@@ -41,8 +45,23 @@ public class CalculationDto {
                     routingProviderCalls,
                     cacheHits,
                     cacheMisses,
-                    createdAt
+                    createdAt,
+                    reused,
+                    adjustment
             );
+        }
+
+        public static CalculationResponse from(
+                Long id,
+                TripStatus status,
+                String ruleVersion,
+                long totalMeters,
+                int routingProviderCalls,
+                int cacheHits,
+                int cacheMisses,
+                Instant createdAt
+        ) {
+            return from(id, status, ruleVersion, totalMeters, routingProviderCalls, cacheHits, cacheMisses, createdAt, false, null);
         }
     }
 
@@ -74,4 +93,3 @@ public class CalculationDto {
             String reason
     ) {}
 }
-

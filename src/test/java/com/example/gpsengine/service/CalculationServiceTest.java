@@ -1,6 +1,7 @@
 package com.example.gpsengine.service;
 
 import com.example.gpsengine.api.dto.CalculationDto;
+import com.example.gpsengine.config.ConfigFingerprintService;
 import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;
@@ -10,6 +11,7 @@ import com.example.gpsengine.domain.Trip;
 import com.example.gpsengine.domain.TripMilestone;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.engine.AnchorConfig;
+import com.example.gpsengine.engine.DistanceResult;
 import com.example.gpsengine.engine.GpsCleaningConfig;
 import com.example.gpsengine.engine.SegmentConfig;
 import com.example.gpsengine.engine.SegmentResult;
@@ -49,9 +51,15 @@ class CalculationServiceTest {
 
     @BeforeEach
     void setUp() {
+        ConfigFingerprintService configFingerprintService = new ConfigFingerprintService(
+                GpsCleaningConfig.defaults(),
+                AnchorConfig.defaults(),
+                SegmentConfig.defaults()
+        );
         calculationService = new CalculationService(
                 persistenceService,
                 fakeRoutingProvider,
+                configFingerprintService,
                 Optional.of(GpsCleaningConfig.defaults()),
                 Optional.of(AnchorConfig.defaults()),
                 Optional.of(SegmentConfig.defaults())
@@ -66,20 +74,6 @@ class CalculationServiceTest {
         assertThatThrownBy(() -> calculationService.calculateTripDistance(999L, TENANT))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Trip not found");
-    }
-
-    @Test
-    @DisplayName("Trip with CLOSED billing status throws ConflictException")
-    void closedTripThrowsConflictException() {
-        Trip closedTrip = DomainFactory.createTrip(TENANT, 12.9279, 77.6271);
-        closedTrip.setBillingStatus(BillingStatus.CLOSED);
-
-        when(persistenceService.loadTripData(1L, TENANT))
-                .thenReturn(Optional.of(new TripDataPersistenceService.LoadedTripData(closedTrip, List.of(), List.of())));
-
-        assertThatThrownBy(() -> calculationService.calculateTripDistance(1L, TENANT))
-                .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("trip billing status is CLOSED");
     }
 
     @Test
@@ -124,19 +118,19 @@ class CalculationServiceTest {
                 .thenReturn(Optional.of(new TripDataPersistenceService.LoadedTripData(trip, List.of(p1, p2, p3), List.of(start, end))));
 
         DistanceCalculation mockSavedCalc = DomainFactory.createCalculation(
-                TENANT, trip, "2026.1", 1500L, TripStatus.CALCULATED, 0, 0, 0
+                TENANT, trip, "hash123", "2026.1", 1500L, TripStatus.CALCULATED, 0, 0, 0
         );
-        when(persistenceService.saveCalculation(eq(trip), any(), any(), eq(TENANT))).thenReturn(mockSavedCalc);
+        ArgumentCaptor<DistanceResult> resultCaptor = ArgumentCaptor.forClass(DistanceResult.class);
+        when(persistenceService.persistCalculationUnderLock(eq(1L), eq(TENANT), any(), resultCaptor.capture()))
+                .thenReturn(new TripDataPersistenceService.PersistCalculationOutcome(mockSavedCalc, false, null));
 
         CalculationDto.CalculationResponse response = calculationService.calculateTripDistance(1L, TENANT);
 
         assertThat(response).isNotNull();
         assertThat(response.status()).isEqualTo(TripStatus.CALCULATED);
 
-        ArgumentCaptor<List<SegmentResult>> segmentCaptor = ArgumentCaptor.forClass(List.class);
-        verify(persistenceService).saveCalculation(eq(trip), any(), segmentCaptor.capture(), eq(TENANT));
-
-        List<SegmentResult> savedSegments = segmentCaptor.getValue();
+        DistanceResult capturedResult = resultCaptor.getValue();
+        List<SegmentResult> savedSegments = capturedResult.segments();
         assertThat(savedSegments).isNotEmpty();
         for (int i = 0; i < savedSegments.size(); i++) {
             assertThat(savedSegments.get(i).sequenceNumber()).isEqualTo(i + 1);

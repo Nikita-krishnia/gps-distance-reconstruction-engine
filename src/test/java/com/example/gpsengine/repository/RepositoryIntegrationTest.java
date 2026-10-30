@@ -195,6 +195,7 @@ class RepositoryIntegrationTest {
         DistanceCalculation oldCalc = distanceCalculationRepository.save(new DistanceCalculation(
                 "tenant-alpha",
                 trip,
+                "0000000000000000000000000000000000000000000000000000000000000001",
                 "v1.0.0",
                 5000L,
                 TripStatus.CALCULATED,
@@ -207,6 +208,7 @@ class RepositoryIntegrationTest {
         DistanceCalculation newCalc = distanceCalculationRepository.save(new DistanceCalculation(
                 "tenant-alpha",
                 trip,
+                "0000000000000000000000000000000000000000000000000000000000000002",
                 "v1.0.0",
                 4200L,
                 TripStatus.CALCULATED,

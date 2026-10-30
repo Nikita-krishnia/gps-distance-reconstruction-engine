@@ -6,6 +6,7 @@ import com.example.gpsengine.api.dto.MilestoneDto;
 import com.example.gpsengine.api.dto.PingDto;
 import com.example.gpsengine.api.dto.TripDto;
 import com.example.gpsengine.domain.BillingAdjustment;
+import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;
 import com.example.gpsengine.domain.GpsPing;
@@ -14,6 +15,7 @@ import com.example.gpsengine.domain.TripMilestone;
 import com.example.gpsengine.domain.TripSegment;
 import com.example.gpsengine.error.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -112,6 +114,7 @@ public class TripService {
         return new MilestoneDto.UploadMilestonesResponse(saved.size());
     }
 
+    @Transactional(readOnly = true)
     public TripDto.TripDetailResponse getTripDetails(Long tripId, String tenantId) {
         Trip trip = persistenceService.findTrip(tripId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
@@ -132,6 +135,25 @@ public class TripService {
             );
         }
 
+        Long billedCalculationId = null;
+        Long billedMeters = null;
+        Long adjustmentsTotalMeters = null;
+        Long payableMeters = null;
+        Instant closedAt = null;
+
+        if (trip.getBillingStatus() == BillingStatus.CLOSED) {
+            DistanceCalculation billed = trip.getBilledCalculation();
+            if (billed != null) {
+                billedCalculationId = billed.getId();
+                billedMeters = billed.getTotalMeters();
+            }
+            adjustmentsTotalMeters = persistenceService.sumAdjustments(tripId, tenantId);
+            if (billedMeters != null) {
+                payableMeters = billedMeters + adjustmentsTotalMeters;
+            }
+            closedAt = trip.getClosedAt();
+        }
+
         return new TripDto.TripDetailResponse(
                 trip.getId(),
                 trip.getStatus(),
@@ -139,7 +161,12 @@ public class TripService {
                 trip.getCreatedAt(),
                 pingsCount,
                 milestonesCount,
-                latestSummary
+                latestSummary,
+                billedCalculationId,
+                billedMeters,
+                adjustmentsTotalMeters,
+                payableMeters,
+                closedAt
         );
     }
 

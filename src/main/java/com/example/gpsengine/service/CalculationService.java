@@ -1,6 +1,10 @@
 package com.example.gpsengine.service;
 
+import com.example.gpsengine.api.dto.BillingAdjustmentDto;
 import com.example.gpsengine.api.dto.CalculationDto;
+import com.example.gpsengine.api.dto.TripDto;
+import com.example.gpsengine.config.ConfigFingerprintService;
+import com.example.gpsengine.domain.BillingAdjustment;
 import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;
@@ -8,6 +12,7 @@ import com.example.gpsengine.domain.GpsPing;
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.Trip;
 import com.example.gpsengine.domain.TripMilestone;
+import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.engine.AnchorBuilder;
 import com.example.gpsengine.engine.AnchorConfig;
 import com.example.gpsengine.engine.AnchorResult;
@@ -19,6 +24,7 @@ import com.example.gpsengine.engine.GpsCleaningConfig;
 import com.example.gpsengine.engine.GpsPoint;
 import com.example.gpsengine.engine.MilestoneInput;
 import com.example.gpsengine.engine.SegmentConfig;
+import com.example.gpsengine.engine.TimelineFingerprint;
 import com.example.gpsengine.engine.TripPoint;
 import com.example.gpsengine.engine.TripTimelineMerger;
 import com.example.gpsengine.error.ConflictException;
@@ -27,6 +33,7 @@ import com.example.gpsengine.error.UnprocessableException;
 import com.example.gpsengine.routing.RoutingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -36,16 +43,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Service orchestrating the end-to-end trip distance reconstruction pipeline.
- *
- * <p>TRANSACTION BOUNDARY SEPARATION:
- * To avoid holding database locks or open database connection pool connections during potentially
- * slow network calls to the external routing provider, this service splits processing into 3 phases:
- * <ol>
- *   <li><b>Phase 1 (Read Tx):</b> Load entities into memory via {@link TripDataPersistenceService#loadTripData(Long, String)}.</li>
- *   <li><b>Phase 2 (No Tx):</b> Run cleaning, anchor extraction, timeline merging, and segment routing.</li>
- *   <li><b>Phase 3 (Write Tx):</b> Persist {@link DistanceCalculation}, segments, and updated trip status.</li>
- * </ol>
+ * Service orchestrating idempotent trip distance calculation, invoice closing,
+ * and ledgered billing adjustments.
  */
 @Service
 public class CalculationService {
@@ -54,6 +53,7 @@ public class CalculationService {
 
     private final TripDataPersistenceService persistenceService;
     private final RoutingProvider routingProvider;
+    private final ConfigFingerprintService configFingerprintService;
     private final GpsCleaningConfig gpsCleaningConfig;
     private final AnchorConfig anchorConfig;
     private final SegmentConfig segmentConfig;
@@ -66,32 +66,33 @@ public class CalculationService {
     public CalculationService(
             TripDataPersistenceService persistenceService,
             RoutingProvider routingProvider,
+            ConfigFingerprintService configFingerprintService,
             Optional<GpsCleaningConfig> cleaningConfig,
             Optional<AnchorConfig> anchorConfig,
             Optional<SegmentConfig> segmentConfig) {
         this.persistenceService = persistenceService;
         this.routingProvider = routingProvider;
+        this.configFingerprintService = configFingerprintService;
         this.gpsCleaningConfig = cleaningConfig.orElseGet(GpsCleaningConfig::defaults);
         this.anchorConfig = anchorConfig.orElseGet(AnchorConfig::defaults);
         this.segmentConfig = segmentConfig.orElseGet(SegmentConfig::defaults);
     }
 
-    public CalculationDto.CalculationResponse calculateTripDistance(Long tripId, String tenantId) {
-        Instant startTime = Instant.now();
+    public record PipelinePrep(
+            Trip trip,
+            List<TripPoint> timeline,
+            String inputHash,
+            String ruleVersion
+    ) {}
 
-        // Phase 1: Short Read Transaction
+    public PipelinePrep prepareTimeline(Long tripId, String tenantId) {
         TripDataPersistenceService.LoadedTripData data = persistenceService.loadTripData(tripId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
 
         Trip trip = data.trip();
-        if (trip.getBillingStatus() == BillingStatus.CLOSED) {
-            throw new ConflictException("Cannot calculate distance: trip billing status is CLOSED");
-        }
-
         List<TripMilestone> milestones = data.milestones();
         List<GpsPing> pings = data.pings();
 
-        // Validate boundary milestones
         Optional<Instant> tripStartOpt = milestones.stream()
                 .filter(m -> m.getType() == MilestoneType.TRIP_START && m.getActualTime() != null)
                 .map(TripMilestone::getActualTime)
@@ -114,15 +115,11 @@ public class CalculationService {
         Double actualEndLat = tripEndMilestone.getActualLat();
         Double actualEndLon = tripEndMilestone.getActualLon();
 
-        // Phase 2: CPU & Routing Pipeline (Outside Database Transaction)
-
-        // 1. Clean GPS pings
         List<GpsPoint> rawGpsPoints = pings.stream()
                 .map(p -> new GpsPoint(p.getLat(), p.getLon(), p.getRecordedAt(), p.getAccuracyMeters()))
                 .toList();
         CleaningResult cleaningResult = cleaner.clean(rawGpsPoints, gpsCleaningConfig);
 
-        // 2. Synthesize anchors
         List<MilestoneInput> milestoneInputs = milestones.stream()
                 .map(m -> new MilestoneInput(
                         m.getType(),
@@ -150,46 +147,120 @@ public class CalculationService {
                 anchorConfig
         );
 
-        // 3. Merge into unified chronological timeline
         List<TripPoint> timeline = timelineMerger.merge(cleaningResult.cleanedPoints(), anchorResult.anchors());
-
-        // 4. Calculate segment distances
-        DistanceResult distanceResult = distanceEngine.calculate(timeline, routingProvider, segmentConfig);
-
-        DistanceCalculation calculation = DomainFactory.createCalculation(
-                tenantId,
-                trip,
-                distanceResult.ruleVersion(),
-                distanceResult.totalMeters(),
-                distanceResult.status(),
-                distanceResult.providerCalls(),
-                distanceResult.cacheHits(),
-                distanceResult.cacheMisses()
+        String inputHash = TimelineFingerprint.compute(
+                timeline,
+                configFingerprintService.getFingerprint(),
+                DistanceEngine.RULE_VERSION
         );
 
-        // Update trip status
-        trip.setStatus(distanceResult.status());
+        return new PipelinePrep(trip, timeline, inputHash, DistanceEngine.RULE_VERSION);
+    }
 
-        // Phase 3: Short Write Transaction
-        DistanceCalculation savedCalc = persistenceService.saveCalculation(
-                trip, calculation, distanceResult.segments(), tenantId
+    public CalculationDto.CalculationResponse calculateTripDistance(Long tripId, String tenantId) {
+        Instant startTime = Instant.now();
+
+        // Phase 1: Short Read Transaction & Early Reuse Check
+        PipelinePrep prep = prepareTimeline(tripId, tenantId);
+
+        // Check if an identical CALCULATED calculation already exists
+        Optional<DistanceCalculation> existingCalcOpt = persistenceService.findExistingCalculation(
+                tripId, prep.inputHash(), prep.ruleVersion(), TripStatus.CALCULATED, tenantId
         );
+        if (existingCalcOpt.isPresent()) {
+            DistanceCalculation existing = existingCalcOpt.get();
+            log.info("Idempotent calculate reuse (Phase 1) [tripId={}] [tenantId={}] [calcId={}]",
+                    tripId, tenantId, existing.getId());
+            return CalculationDto.CalculationResponse.from(
+                    existing.getId(),
+                    existing.getStatus(),
+                    existing.getRuleVersion(),
+                    existing.getTotalMeters(),
+                    existing.getRoutingProviderCalls(),
+                    existing.getCacheHits(),
+                    existing.getCacheMisses(),
+                    existing.getCreatedAt(),
+                    true,
+                    null
+            );
+        }
+
+        // Phase 2: CPU & Routing Pipeline (Outside Database Transaction)
+        DistanceResult distanceResult = distanceEngine.calculate(prep.timeline(), routingProvider, segmentConfig);
+
+        // Phase 3: Short Write Transaction with Pessimistic Lock
+        TripDataPersistenceService.PersistCalculationOutcome outcome;
+        try {
+            outcome = persistenceService.persistCalculationUnderLock(tripId, tenantId, prep.inputHash(), distanceResult);
+        } catch (DataIntegrityViolationException ex) {
+            // Safety net: another thread inserted between check and insert
+            Optional<DistanceCalculation> conflictWinner = persistenceService.findExistingCalculation(
+                    tripId, prep.inputHash(), prep.ruleVersion(), distanceResult.status(), tenantId
+            );
+            if (conflictWinner.isPresent()) {
+                DistanceCalculation winner = conflictWinner.get();
+                return CalculationDto.CalculationResponse.from(
+                        winner.getId(),
+                        winner.getStatus(),
+                        winner.getRuleVersion(),
+                        winner.getTotalMeters(),
+                        winner.getRoutingProviderCalls(),
+                        winner.getCacheHits(),
+                        winner.getCacheMisses(),
+                        winner.getCreatedAt(),
+                        true,
+                        null
+                );
+            }
+            throw ex;
+        }
+
+        BillingAdjustmentDto.AdjustmentResponse adjustmentDto = null;
+        if (outcome.adjustment() != null) {
+            BillingAdjustment a = outcome.adjustment();
+            adjustmentDto = BillingAdjustmentDto.AdjustmentResponse.from(
+                    a.getId(),
+                    a.getOldCalculation().getId(),
+                    a.getNewCalculation().getId(),
+                    a.getDeltaMeters(),
+                    a.getCreatedAt()
+            );
+        }
 
         Duration duration = Duration.between(startTime, Instant.now());
-        // Structured log: no coordinates or employee identifiers
-        log.info("Calculation completed [tripId={}] [tenantId={}] [status={}] [segments={}] [totalMeters={}] [providerCalls={}] [durationMillis={}]",
-                tripId, tenantId, distanceResult.status(), distanceResult.segments().size(),
-                distanceResult.totalMeters(), distanceResult.providerCalls(), duration.toMillis());
+        log.info("Calculation completed [tripId={}] [tenantId={}] [status={}] [reused={}] [totalMeters={}] [providerCalls={}] [durationMillis={}]",
+                tripId, tenantId, outcome.calculation().getStatus(), outcome.reused(),
+                outcome.calculation().getTotalMeters(), outcome.calculation().getRoutingProviderCalls(), duration.toMillis());
 
         return CalculationDto.CalculationResponse.from(
-                savedCalc.getId(),
-                savedCalc.getStatus(),
-                savedCalc.getRuleVersion(),
-                savedCalc.getTotalMeters(),
-                savedCalc.getRoutingProviderCalls(),
-                savedCalc.getCacheHits(),
-                savedCalc.getCacheMisses(),
-                savedCalc.getCreatedAt()
+                outcome.calculation().getId(),
+                outcome.calculation().getStatus(),
+                outcome.calculation().getRuleVersion(),
+                outcome.calculation().getTotalMeters(),
+                outcome.calculation().getRoutingProviderCalls(),
+                outcome.calculation().getCacheHits(),
+                outcome.calculation().getCacheMisses(),
+                outcome.calculation().getCreatedAt(),
+                outcome.reused(),
+                adjustmentDto
+        );
+    }
+
+    public TripDto.CloseInvoiceResponse closeInvoice(Long tripId, String tenantId) {
+        // Phase 1: Clean and fingerprint current state without routing
+        PipelinePrep prep = prepareTimeline(tripId, tenantId);
+
+        // Phase 2: Lock trip and close atomically in short write transaction
+        TripDataPersistenceService.CloseInvoiceOutcome outcome =
+                persistenceService.closeInvoiceUnderLock(tripId, tenantId, prep.inputHash());
+
+        log.info("Invoice closed [tripId={}] [tenantId={}] [billedCalcId={}] [billedMeters={}]",
+                tripId, tenantId, outcome.billedCalculationId(), outcome.billedMeters());
+
+        return TripDto.CloseInvoiceResponse.from(
+                outcome.billedCalculationId(),
+                outcome.billedMeters(),
+                outcome.closedAt()
         );
     }
 }
