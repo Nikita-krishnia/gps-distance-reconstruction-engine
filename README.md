@@ -45,31 +45,31 @@ Expected output:
 ## How to Test
 
 ### 1. Engine Tests Only (Fast, Plain Java, No Docker Required)
-The core mathematical and GPS cleaning engine is framework-free and runs without Docker or Spring context:
+The core mathematical, GPS cleaning, and anchor merging engine is framework-free and runs without Docker or Spring context:
 
 ```powershell
 .\mvnw.cmd test -Dtest="com.example.gpsengine.engine.*Test"
 ```
 
 ### 2. Full Test Suite (Requires Docker Desktop)
-Runs all engine tests, the Spring Web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container:
+Runs all 32 tests (engine tests, web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container):
 
 ```powershell
 .\mvnw.cmd test
 ```
 
-## Status: Batch 3 (GPS Data Cleaning & Plain-Java Engine)
+## Status: Batch 4 (Anchor Points & Timeline Merging)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
-| **Plain Java Engine** | Zero Spring/JPA dependencies in `engine` package | Pure Java 21 records and static utilities | Matched |
-| **Haversine Calculator** | Great-circle distance with $R=6,371,000$ m | `HaversineCalculator` pure static function | Matched |
-| **Deterministic Sort** | Timestamp ascending, accuracy asc (nulls last), lat, lon | Custom multi-level `Comparator` in `GpsCleaner` | Matched |
-| **Deduplication** | Same timestamp + lat/lon rounded to 6 decimals; keep most accurate | `DuplicateKey(Instant, latE6, lonE6)` HashSet filter | Matched |
-| **Low Accuracy Filter** | Accuracy > threshold dropped; == threshold kept; null kept | Configurable threshold (default 50m) | Matched |
-| **Teleport Filter** | Implied speed > maxSpeed relative to *last accepted* point dropped | Unrounded `km / hours` check against limit (default 120 km/h) | Matched |
-| **Zero-Time Teleport** | $\Delta t = 0$ with distance > 0 treated as infinite speed | Explicit zero-time distance check in pipeline | Matched |
-| **Pipeline Order** | 1. Invalid coords -> 2. Sort -> 3. Deduplicate -> 4. Low accuracy -> 5. Teleport | Fixed deterministic order fully documented in code | Matched |
-| **Config Bean** | Read properties and register `GpsCleaningConfig` bean in `config` layer | `GpsCleaningConfiguration` in `config` package | Matched |
+| **Plain Java Engine** | Zero Spring/JPA dependencies in `engine` anchor classes | `AnchorBuilder` and `TripTimelineMerger` are pure Java | Matched |
+| **Employee Anchors** | Actual if valid; else ad-hoc profile fallback or planned fallback; strict isolation | Priority fallback with strict ad-hoc/planned segregation | Matched |
+| **No-Show Anchors** | Behind `includeNoShow` config; actual then planned | Configurable no-show anchor synthesis | Matched |
+| **Office Anchor** | Actual if within 400m radius of planned office; else planned office | Great-circle Haversine comparison with 400m boundary tolerance | Matched |
+| **Post-Cleaning Anchors** | Anchors added after GPS cleaning so never dropped by teleport filter | Anchors synthesized independently and merged into timeline | Matched |
+| **Deterministic Timeline Merge** | Sort by time; tie-break: GPS before Anchor, anchorSource enum order, lat, lon | Canonical `TIMELINE_COMPARATOR` ensuring 100% determinism | Matched |
+| **Privacy by Design** | No employee refs or coordinates in `toString()` | Clean `toString()` across all domain and engine models | Matched |
+| **Database Entity Update** | Add nullable `profileSignInTime` to `TripMilestone` | Added field, getter, constructor, maintaining tests | Matched |
+| **Spring Configuration** | Register `AnchorConfig` bean reading `gps.anchors.*` properties | `AnchorConfiguration` in `config` layer | Matched |

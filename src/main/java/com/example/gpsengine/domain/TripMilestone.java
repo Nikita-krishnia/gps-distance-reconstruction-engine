@@ -65,6 +65,9 @@ public class TripMilestone {
     @Column(name = "profile_fallback_lon")
     private Double profileFallbackLon;
 
+    @Column(name = "profile_sign_in_time")
+    private Instant profileSignInTime;
+
     protected TripMilestone() {
         // JPA required no-arg constructor
     }
@@ -74,6 +77,16 @@ public class TripMilestone {
                          Double plannedLat, Double plannedLon, Instant plannedTime,
                          RiderKind riderKind,
                          Double profileFallbackLat, Double profileFallbackLon) {
+        this(tenantId, trip, type, employeeRef, actualLat, actualLon, actualTime,
+                plannedLat, plannedLon, plannedTime, riderKind, profileFallbackLat, profileFallbackLon, null);
+    }
+
+    public TripMilestone(String tenantId, Trip trip, MilestoneType type, String employeeRef,
+                         Double actualLat, Double actualLon, Instant actualTime,
+                         Double plannedLat, Double plannedLon, Instant plannedTime,
+                         RiderKind riderKind,
+                         Double profileFallbackLat, Double profileFallbackLon,
+                         Instant profileSignInTime) {
         this.tenantId = Objects.requireNonNull(tenantId, "tenantId must not be null");
         this.trip = Objects.requireNonNull(trip, "trip must not be null");
         this.type = Objects.requireNonNull(type, "type must not be null");
@@ -87,6 +100,7 @@ public class TripMilestone {
         this.riderKind = riderKind;
         this.profileFallbackLat = profileFallbackLat;
         this.profileFallbackLon = profileFallbackLon;
+        this.profileSignInTime = profileSignInTime;
     }
 
     public Long getId() {
@@ -143,6 +157,10 @@ public class TripMilestone {
 
     public Double getProfileFallbackLon() {
         return profileFallbackLon;
+    }
+
+    public Instant getProfileSignInTime() {
+        return profileSignInTime;
     }
 
     @Override
