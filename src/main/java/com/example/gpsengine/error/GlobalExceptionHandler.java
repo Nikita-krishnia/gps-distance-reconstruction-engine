@@ -1,5 +1,6 @@
 package com.example.gpsengine.error;
 
+import com.example.gpsengine.security.CorrelationIdFilter;
 import jakarta.persistence.PessimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -8,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -32,9 +34,25 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<ErrorResponse> handleUnauthenticated(UnauthenticatedException ex, HttpServletRequest request) {
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
+        ErrorResponse error = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.UNAUTHORIZED.value(),
+                "UNAUTHENTICATED",
+                ex.getMessage(),
+                request.getRequestURI(),
+                correlationId
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .body(error);
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.NOT_FOUND.value(),
@@ -48,7 +66,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoResourceFound(NoResourceFoundException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.NOT_FOUND.value(),
@@ -62,7 +80,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.CONFLICT.value(),
@@ -82,7 +100,7 @@ public class GlobalExceptionHandler {
             LockTimeoutException.class
     })
     public ResponseEntity<ErrorResponse> handleLockingFailure(Exception ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         log.warn("Concurrent modification / lock timeout [correlationId={}] [path={}]", correlationId, request.getRequestURI());
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
@@ -97,7 +115,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UnprocessableException.class)
     public ResponseEntity<ErrorResponse> handleUnprocessable(UnprocessableException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.UNPROCESSABLE_ENTITY.value(),
@@ -111,7 +129,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         List<ErrorResponse.FieldErrorDetail> fieldErrors = new ArrayList<>();
         ex.getBindingResult().getFieldErrors().forEach(fe -> {
             fieldErrors.add(new ErrorResponse.FieldErrorDetail(fe.getField(), fe.getDefaultMessage()));
@@ -131,7 +149,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ErrorResponse> handleHandlerMethodValidation(HandlerMethodValidationException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         List<ErrorResponse.FieldErrorDetail> fieldErrors = new ArrayList<>();
         ex.getAllValidationResults().forEach(vr -> {
             String paramName = vr.getMethodParameter().getParameterName();
@@ -154,7 +172,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         List<ErrorResponse.FieldErrorDetail> fieldErrors = new ArrayList<>();
         ex.getConstraintViolations().forEach(cv -> {
             fieldErrors.add(new ErrorResponse.FieldErrorDetail(cv.getPropertyPath().toString(), cv.getMessage()));
@@ -174,7 +192,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -188,7 +206,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ErrorResponse> handleMissingRequestHeader(MissingRequestHeaderException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -202,7 +220,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -216,7 +234,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.METHOD_NOT_ALLOWED.value(),
@@ -230,7 +248,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(),
@@ -244,7 +262,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -258,7 +276,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
-        String correlationId = UUID.randomUUID().toString();
+        String correlationId = CorrelationIdFilter.getCorrelationId(request);
         log.error("Unhandled exception [correlationId={}] [exception={}] [path={}]",
                 correlationId, ex.getClass().getName(), request.getRequestURI());
         log.debug("Stack trace for [correlationId={}]:", correlationId, ex);
