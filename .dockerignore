@@ -1,0 +1,12 @@
+.git
+.github
+target/
+.idea/
+*.iml
+*.md
+docs/
+scripts/
+scratch/
+node_modules/
+.env
+

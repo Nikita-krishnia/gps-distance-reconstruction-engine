@@ -1,22 +1,59 @@
 services:
-  postgres:
+  db:
     image: postgres:17-alpine
-    container_name: gps-distance-postgres
+    container_name: gps-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-gps_db}
       POSTGRES_USER: ${DB_USERNAME:-gps_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-gps_password}
     ports:
-      - "${DB_PORT:-5434}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gps-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-gps_user} -d ${DB_NAME:-gps_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gps-engine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME:-gps_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-gps_user}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-gps_password}
+      JWT_SECRET: ${JWT_SECRET:-ThisIsADefaultSecretKeyWithAtLeast32BytesForDockerComposeDemoUseOnly!}
+      AUTH_SEED_ENABLED: ${AUTH_SEED_ENABLED:-true}
+      SEED_USERS: ${SEED_USERS:-true}
+      SEED_PASSWORD: ${SEED_PASSWORD:-MoveInSync@2026!}
+      DEMO_FAULT_INJECTION_ENABLED: ${DEMO_FAULT_INJECTION:-true}
+      RECOMPUTE_ENABLED: ${RECOMPUTE_ENABLED:-true}
+      RECOMPUTE_INTERVAL_SECONDS: ${RECOMPUTE_INTERVAL_SECONDS:-10}
+      ROUTING_PROVIDER: ${ROUTING_PROVIDER:-fake}
+      ROUTING_CACHE_ENABLED: ${ROUTING_CACHE_ENABLED:-true}
+      ROUTING_CIRCUIT_BREAKER_OPEN_DURATION_SECONDS: ${ROUTING_BREAKER_OPEN_SECONDS:-10}
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ${LOGGING_STRUCTURED_FORMAT_CONSOLE:-ecs}
+    stop_grace_period: 30s
+    networks:
+      - gps-network
+
+networks:
+  gps-network:
+    driver: bridge
+
 volumes:
   postgres_data:
-
