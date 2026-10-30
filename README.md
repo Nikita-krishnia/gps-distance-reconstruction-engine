@@ -44,23 +44,32 @@ Expected output:
 
 ## How to Test
 
-Ensure **Docker Desktop is running**, as integration tests spin up a dedicated, isolated PostgreSQL container via Testcontainers:
+### 1. Engine Tests Only (Fast, Plain Java, No Docker Required)
+The core mathematical and GPS cleaning engine is framework-free and runs without Docker or Spring context:
+
+```powershell
+.\mvnw.cmd test -Dtest="com.example.gpsengine.engine.*Test"
+```
+
+### 2. Full Test Suite (Requires Docker Desktop)
+Runs all engine tests, the Spring Web slice test, and repository integration tests against a temporary Testcontainers PostgreSQL container:
 
 ```powershell
 .\mvnw.cmd test
 ```
 
-## Status: Batch 2 (Entities, PostgreSQL & JPA Repositories)
+## Status: Batch 3 (GPS Data Cleaning & Plain-Java Engine)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
-| **Docker PostgreSQL** | Compose service on non-standard port | `postgres:17-alpine` on host port `5434` | Matched |
-| **Environment Config** | `.env.example` committed, `.env` ignored | `.env.example` with `DB_PORT=5434`, `.env` git-ignored | Matched |
-| **Domain Entities** | Only 6 entities (`Trip`, `GpsPing`, `TripMilestone`, `DistanceCalculation`, `TripSegment`, `BillingAdjustment`) | All 6 implemented with `tenantId`, `Instant` timestamps, and `long` metres | Matched |
-| **Privacy & Security** | No coordinates or employee data in `toString()` | Clean `toString()` implementations omitting PII and coordinates | Matched |
-| **Entity Relationships** | Only `@ManyToOne(fetch = LAZY)` from child to parent | Zero bidirectional `@OneToMany` collections | Matched |
-| **Repositories** | Spring Data JPA interfaces with tenant & ordering queries | All 6 repositories with required query methods | Matched |
-| **Repository Tests** | `@DataJpaTest` with real PostgreSQL via Testcontainers | 5 repository tests + 1 hello slice test passing on real Postgres container | Matched |
-| **Test Database** | `@AutoConfigureTestDatabase(replace = NONE)` with `@ServiceConnection` | Configured with `testcontainers.version=1.21.4` | Matched |
+| **Plain Java Engine** | Zero Spring/JPA dependencies in `engine` package | Pure Java 21 records and static utilities | Matched |
+| **Haversine Calculator** | Great-circle distance with $R=6,371,000$ m | `HaversineCalculator` pure static function | Matched |
+| **Deterministic Sort** | Timestamp ascending, accuracy asc (nulls last), lat, lon | Custom multi-level `Comparator` in `GpsCleaner` | Matched |
+| **Deduplication** | Same timestamp + lat/lon rounded to 6 decimals; keep most accurate | `DuplicateKey(Instant, latE6, lonE6)` HashSet filter | Matched |
+| **Low Accuracy Filter** | Accuracy > threshold dropped; == threshold kept; null kept | Configurable threshold (default 50m) | Matched |
+| **Teleport Filter** | Implied speed > maxSpeed relative to *last accepted* point dropped | Unrounded `km / hours` check against limit (default 120 km/h) | Matched |
+| **Zero-Time Teleport** | $\Delta t = 0$ with distance > 0 treated as infinite speed | Explicit zero-time distance check in pipeline | Matched |
+| **Pipeline Order** | 1. Invalid coords -> 2. Sort -> 3. Deduplicate -> 4. Low accuracy -> 5. Teleport | Fixed deterministic order fully documented in code | Matched |
+| **Config Bean** | Read properties and register `GpsCleaningConfig` bean in `config` layer | `GpsCleaningConfiguration` in `config` package | Matched |
