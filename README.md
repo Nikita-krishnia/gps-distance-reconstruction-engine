@@ -93,19 +93,80 @@ DistanceEngine
 - **Deterministic Sum:** The trip total distance is the exact mathematical sum of these whole-meter `long` values. This guarantees 100% deterministic, reproducible totals without floating-point accumulation drift or rounding discrepancies across platforms.
 - **Micro-distance Trade-off:** Segments shorter than 0.5 meters (e.g. slight jitter while parked) round down to 0 meters. This minor micro-distance undercounting is an intentional trade-off in favor of audit-proof integer precision.
 
-## Status: Batch 7 (Routing Cache, Counters & Circuit Breaker)
+## REST API Reference
+
+> [!IMPORTANT]
+> **Authentication Notice:** The `X-Tenant-Id` header is a multi-tenancy discriminator and **NOT** a real authentication mechanism. Secure JWT-based authentication and role-based access control will be implemented in Batch 10.
+
+Every endpoint requires the header `X-Tenant-Id: <tenant-id>` (1 to 64 alphanumeric characters, dashes, or underscores). If omitted or invalid, the API returns `400 Bad Request`.
+
+### Endpoints Overview
+
+| Method | Endpoint | Status | Description & Validation |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/trips` | `201 Created` | Creates a new trip. Body requires `officePlannedLatitude` (-90..90) and `officePlannedLongitude` (-180..180). Returns `id`, `status: NEW`, `billingStatus: OPEN`, `createdAt`. Sets `Location: /api/v1/trips/{id}`. |
+| `POST` | `/api/v1/trips/{id}/pings` | `201 Created` | Uploads 1 to 10,000 raw GPS pings (`latitude`, `longitude`, `recordedAt`, optional `accuracyMeters` >= 0). Stores raw data without cleaning. Returns `{ "accepted": n }`. |
+| `POST` | `/api/v1/trips/{id}/milestones` | `201 Created` | Uploads 1 to 500 milestones (`TRIP_START`, `PICKUP`, `DROP`, `NO_SHOW`, `TRIP_END`). `employeeRef` required for pickups/drops/no-shows (letters, numbers, `_`, `-` only). Coordinates must be paired. Returns `{ "accepted": n }`. |
+| `POST` | `/api/v1/trips/{id}/calculations` | `201 Created` | Runs the 3-phase calculation pipeline. Calculates or recomputes distance and saves segments. Returns calculation summary and 3-decimal `totalKm`. |
+| `GET` | `/api/v1/trips/{id}` | `200 OK` | Retrieves trip overview, total ping count, milestone count, and latest calculation summary. |
+| `GET` | `/api/v1/trips/{id}/calculations` | `200 OK` | Retrieves chronological history of calculations for the trip, newest first. |
+| `GET` | `/api/v1/trips/{id}/calculations/{calcId}/segments` | `200 OK` | Retrieves ordered list of reconstructed segments with meters, rules, and privacy-safe explanation reasons. |
+| `GET` | `/api/v1/trips/{id}/billing-adjustments` | `200 OK` | Retrieves billing adjustments history for the trip, newest first. |
+
+### PowerShell Walkthrough Using curl.exe
+
+Run this walkthrough against a running service (`.\mvnw.cmd spring-boot:run` on port 8081):
+
+```powershell
+# 1. Create a trip
+curl.exe -s -i -X POST http://localhost:8081/api/v1/trips `
+  -H "Content-Type: application/json" `
+  -H "X-Tenant-Id: tenant-alpha" `
+  -d "@docs/samples/trip.json"
+
+# 2. Upload raw GPS pings (including duplicates and out-of-order)
+curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/pings `
+  -H "Content-Type: application/json" `
+  -H "X-Tenant-Id: tenant-alpha" `
+  -d "@docs/samples/pings.json"
+
+# 3. Upload milestones (start, employee drop, and trip end)
+curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/milestones `
+  -H "Content-Type: application/json" `
+  -H "X-Tenant-Id: tenant-alpha" `
+  -d "@docs/samples/milestones.json"
+
+# 4. Calculate distance
+curl.exe -s -i -X POST http://localhost:8081/api/v1/trips/1/calculations `
+  -H "X-Tenant-Id: tenant-alpha"
+
+# 5. Get trip summary
+curl.exe -s -i http://localhost:8081/api/v1/trips/1 `
+  -H "X-Tenant-Id: tenant-alpha"
+
+# 6. Get calculation segments
+curl.exe -s -i http://localhost:8081/api/v1/trips/1/calculations/1/segments `
+  -H "X-Tenant-Id: tenant-alpha"
+```
+
+## Known Limitations & Trade-offs
+
+- **Segment Pagination:** Segment listings currently return all segments for a calculation without pagination. For very long routes (e.g. 1000+ segments), pagination will be considered.
+- **Concurrent Calculate Calls:** Concurrent `POST /calculations` requests on the exact same trip will execute and create separate calculation snapshots. Concurrency locking and idempotency keys will be added in Batch 9.
+- **Identity Key Generation:** JPA entities use `GenerationType.IDENTITY`, which disables Hibernate JDBC batch inserts on `saveAll()`. This is an accepted simplicity trade-off for prototyping and will be revisited if write throughput becomes a bottleneck in Batch 12 benchmarks.
+
+## Status: Batch 8 (Service Layer, REST APIs & Validation)
 
 ### Implemented vs Planned
 
 | Feature / Requirement | Planned | Implemented | Status |
 | :--- | :--- | :--- | :--- |
-| **Caffeine In-Memory Cache** | Caffeine cache with maximumSize, expireAfterWrite TTL, grid snapping, centre-to-centre routing | `CachingRoutingProvider` with directional snapped grid keys, centre routing, and same-cell bypass | Matched |
-| **Deterministic Caching** | Snap to cell centres so cached values depend only on the key, not arrival order | Centre coordinate conversion for from/to endpoints | Matched |
-| **Same-Cell Bypass** | When start/end share same cell, bypass cache, route exact coords, do not cache | Same-cell detection with direct pass-through and `cacheBypasses` counter | Matched |
-| **Circuit Breaker** | States CLOSED, OPEN, HALF_OPEN; threshold failures; open duration; single trial | Plain-Java `CircuitBreaker` with synchronized state machine and lock-free execution | Matched |
-| **Concurrency & Non-Blocking** | Never hold lock while provider call runs | Lock released during upstream I/O; trial in-flight guard prevents multiple probes | Matched |
-| **Routing Telemetry** | Thread-safe counters for hits, misses, bypasses, provider calls, failures, breaker rejections | `RoutingStats` with `LongAdder` counters and immutable `Snapshot` | Matched |
-| **Per-Trip Stats in Engine** | `DistanceResult` tracks `providerCalls`, `cacheHits`, and `cacheMisses` | `DistanceEngine` populates per-trip metrics from `RouteResult.source()` | Matched |
-| **Runtime Failure Control** | `FakeRoutingProvider` toggleable failure for recovery verification | `setFailing(boolean)` added to `FakeRoutingProvider` | Matched |
-| **Decorated Wiring** | Chain: primary `CachingRoutingProvider` -> `CircuitBreakerRoutingProvider` -> raw provider | `RoutingConfiguration` wires chain, stats, breaker, and clock beans | Matched |
+| **REST Controllers & DTOs** | Controllers in `api`, DTO records, no entities exposed | `TripController` and clean Java record DTOs with Bean Validation | Matched |
+| **Multi-Tenancy Isolation** | Enforce `X-Tenant-Id` header, tenant-scoped lookups, cross-tenant 404 | Tenant validation, `findByIdAndTenantId`, strict cross-tenant 404 | Matched |
+| **3-Phase Calculation Service** | Read Tx -> CPU/Routing (No Tx) -> Write Tx; no holding locks across HTTP | `CalculationService` + `TripDataPersistenceService` using separate beans | Matched |
+| **Standardized Error Handling** | Single envelope `{timestamp, status, code, message, path, correlationId}` | `@RestControllerAdvice` in `GlobalExceptionHandler` | Matched |
+| **Privacy by Design** | No coordinates, employee refs, or rejected values in responses or logs | Field names and error reasons only; masked internal 500 errors | Matched |
+| **Idempotent Recompute & Billing Adjustments** | Handling late pings on closed invoices via signed adjustments | **PLANNED (Batch 9)** | Planned |
 | **Automatic Recomputation Job** | Scheduled background worker recomputing DEGRADED trips upon provider recovery | **PLANNED (Batch 9)** | Planned |
+| **Security & Authentication** | JWT-based auth replacing temporary X-Tenant-Id header | **PLANNED (Batch 10)** | Planned |
+| **Metrics & Observability** | Micrometer, Actuator, Prometheus metrics binding | **PLANNED (Batch 13)** | Planned |

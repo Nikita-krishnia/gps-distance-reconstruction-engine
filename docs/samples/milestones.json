@@ -1,0 +1,31 @@
+{
+  "milestones": [
+    {
+      "type": "TRIP_START",
+      "actualTime": "2026-10-30T07:00:00Z"
+    },
+    {
+      "type": "PICKUP",
+      "employeeRef": "EMP-1001",
+      "riderKind": "PLANNED",
+      "actualLatitude": 12.9716,
+      "actualLongitude": 77.5946,
+      "actualTime": "2026-10-30T07:00:00Z"
+    },
+    {
+      "type": "DROP",
+      "employeeRef": "EMP-1001",
+      "riderKind": "PLANNED",
+      "actualLatitude": 12.9400,
+      "actualLongitude": 77.6100,
+      "actualTime": "2026-10-30T07:15:00Z"
+    },
+    {
+      "type": "TRIP_END",
+      "actualLatitude": 12.9280,
+      "actualLongitude": 77.6270,
+      "actualTime": "2026-10-30T07:30:00Z"
+    }
+  ]
+}
+
