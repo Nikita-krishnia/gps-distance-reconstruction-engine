@@ -21,6 +21,7 @@ public class FakeRoutingProvider implements RoutingProvider {
     private final int failAfterCalls;
     private final long latencyMillis;
     private final AtomicInteger callCount = new AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicBoolean failing = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public FakeRoutingProvider() {
         this(DEFAULT_DETOUR_FACTOR, -1, 0L);
@@ -43,6 +44,11 @@ public class FakeRoutingProvider implements RoutingProvider {
     public RouteResult route(double fromLat, double fromLon, double toLat, double toLon)
             throws RoutingUnavailableException {
         int currentCall = callCount.incrementAndGet();
+
+        // Runtime failure toggling
+        if (failing.get()) {
+            throw new RoutingUnavailableException("Fake routing provider simulated failure via setFailing(true)");
+        }
 
         // Failure injection: if failAfterCalls is configured (>= 0), succeed for the first N calls,
         // and throw RoutingUnavailableException for all subsequent calls.
@@ -71,6 +77,14 @@ public class FakeRoutingProvider implements RoutingProvider {
 
     public int getCallCount() {
         return callCount.get();
+    }
+
+    public void setFailing(boolean failing) {
+        this.failing.set(failing);
+    }
+
+    public boolean isFailing() {
+        return failing.get();
     }
 
     public double getDetourFactor() {
