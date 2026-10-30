@@ -13,7 +13,12 @@ public class AuthDto {
             @NotBlank(message = "password must not be blank")
             @Size(max = 128, message = "password cannot exceed 128 characters")
             String password
-    ) {}
+    ) {
+        @Override
+        public String toString() {
+            return "LoginRequest[username=" + username + ", password=[PROTECTED]]";
+        }
+    }
 
     public record LoginResponse(
             String accessToken,

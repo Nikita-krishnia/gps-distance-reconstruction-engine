@@ -31,6 +31,11 @@ public class TripDto {
                 throw new IllegalArgumentException("officePlannedLongitude must be a finite number");
             }
         }
+
+        @Override
+        public String toString() {
+            return "CreateTripRequest[officePlannedLatitude=[REDACTED], officePlannedLongitude=[REDACTED]]";
+        }
     }
 
     public record TripResponse(

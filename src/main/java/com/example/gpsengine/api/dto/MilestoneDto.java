@@ -20,7 +20,12 @@ public class MilestoneDto {
             @NotEmpty(message = "milestones list must not be empty")
             @Size(min = 1, max = 500, message = "milestones list size must be between 1 and 500")
             List<@Valid MilestoneItem> milestones
-    ) {}
+    ) {
+        @Override
+        public String toString() {
+            return "UploadMilestonesRequest[count=" + (milestones != null ? milestones.size() : 0) + "]";
+        }
+    }
 
     public record MilestoneItem(
             @NotNull(message = "type must not be null")
@@ -86,6 +91,11 @@ public class MilestoneDto {
             if (lon != null && (lon.isNaN() || lon.isInfinite())) {
                 throw new IllegalArgumentException(lonName + " must be a finite number");
             }
+        }
+
+        @Override
+        public String toString() {
+            return "MilestoneItem[type=" + type + ", employeeRef=[REDACTED], actualTime=" + actualTime + "]";
         }
     }
 

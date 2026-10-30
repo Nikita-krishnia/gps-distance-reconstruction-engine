@@ -17,7 +17,12 @@ public class PingDto {
             @NotEmpty(message = "pings list must not be empty")
             @Size(min = 1, max = 10000, message = "pings list size must be between 1 and 10000")
             List<@Valid PingItem> pings
-    ) {}
+    ) {
+        @Override
+        public String toString() {
+            return "UploadPingsRequest[count=" + (pings != null ? pings.size() : 0) + "]";
+        }
+    }
 
     public record PingItem(
             @NotNull(message = "latitude must not be null")
@@ -46,6 +51,11 @@ public class PingDto {
             if (accuracyMeters != null && (accuracyMeters.isNaN() || accuracyMeters.isInfinite())) {
                 throw new IllegalArgumentException("accuracyMeters must be a finite number");
             }
+        }
+
+        @Override
+        public String toString() {
+            return "PingItem[latitude=[REDACTED], longitude=[REDACTED], recordedAt=" + recordedAt + ", accuracyMeters=" + accuracyMeters + "]";
         }
     }
 
