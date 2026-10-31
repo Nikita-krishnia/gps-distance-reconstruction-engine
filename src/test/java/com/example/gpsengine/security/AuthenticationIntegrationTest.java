@@ -3,7 +3,6 @@ package com.example.gpsengine.security;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.example.gpsengine.api.dto.CalculationDto;
 import com.example.gpsengine.domain.AppUser;
 import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;

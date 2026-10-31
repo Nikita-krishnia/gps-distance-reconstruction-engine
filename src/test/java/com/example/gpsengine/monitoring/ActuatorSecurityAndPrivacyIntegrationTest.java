@@ -8,13 +8,10 @@ import com.example.gpsengine.api.dto.MilestoneDto;
 import com.example.gpsengine.api.dto.PingDto;
 import com.example.gpsengine.api.dto.TripDto;
 import com.example.gpsengine.domain.BillingStatus;
-import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.security.CorrelationIdFilter;
 import com.example.gpsengine.service.CalculationService;
 import com.example.gpsengine.service.TripService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -27,7 +24,7 @@ import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,7 +32,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -77,13 +73,10 @@ class ActuatorSecurityAndPrivacyIntegrationTest {
     @Autowired
     private MeterRegistry meterRegistry;
 
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @MockBean
+    @MockitoBean
     private TripService tripService;
 
-    @MockBean
+    @MockitoBean
     private CalculationService calculationService;
 
     private ListAppender<ILoggingEvent> listAppender;
@@ -132,9 +125,6 @@ class ActuatorSecurityAndPrivacyIntegrationTest {
         }
         MDC.clear();
     }
-
-    @Autowired
-    private org.springframework.context.ApplicationContext applicationContext;
 
     @Test
     @DisplayName("GET /actuator/health is 200 without token and returns status UP with no component details")

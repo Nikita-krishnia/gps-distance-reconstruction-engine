@@ -2,15 +2,12 @@ package com.example.gpsengine.service;
 
 import com.example.gpsengine.api.dto.CalculationDto;
 import com.example.gpsengine.config.ConfigFingerprintService;
-import com.example.gpsengine.domain.BillingAdjustment;
-import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;
 import com.example.gpsengine.domain.GpsPing;
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.Role;
 import com.example.gpsengine.domain.SegmentRule;
 import com.example.gpsengine.domain.Trip;
-import com.example.gpsengine.domain.TripMilestone;
 import com.example.gpsengine.domain.TripSegment;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.engine.AnchorConfig;
@@ -19,14 +16,11 @@ import com.example.gpsengine.engine.HaversineCalculator;
 import com.example.gpsengine.engine.SegmentConfig;
 import com.example.gpsengine.job.DegradedTripRecomputeJob;
 import com.example.gpsengine.job.RecomputeStats;
-import com.example.gpsengine.repository.BillingAdjustmentRepository;
-import com.example.gpsengine.repository.DistanceCalculationRepository;
 import com.example.gpsengine.repository.TripRepository;
 import com.example.gpsengine.repository.TripSegmentRepository;
 import com.example.gpsengine.routing.CachingRoutingProvider;
 import com.example.gpsengine.routing.CircuitBreaker;
 import com.example.gpsengine.routing.CircuitBreakerRoutingProvider;
-import com.example.gpsengine.routing.CircuitOpenException;
 import com.example.gpsengine.routing.FakeRoutingProvider;
 import com.example.gpsengine.routing.OsrmRoutingProvider;
 import com.example.gpsengine.routing.RouteResult;
@@ -50,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -85,13 +78,7 @@ class ComprehensiveFailureInjectionIntegrationTest {
     private TripRepository tripRepository;
 
     @Autowired
-    private DistanceCalculationRepository calculationRepository;
-
-    @Autowired
     private TripSegmentRepository segmentRepository;
-
-    @Autowired
-    private BillingAdjustmentRepository adjustmentRepository;
 
     @Autowired
     private CircuitBreaker circuitBreaker;

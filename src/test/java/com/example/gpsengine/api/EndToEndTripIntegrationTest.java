@@ -1,9 +1,6 @@
 package com.example.gpsengine.api;
 
-import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.Role;
-import com.example.gpsengine.domain.TripStatus;
-import com.example.gpsengine.routing.FakeRoutingProvider;
 import com.example.gpsengine.routing.RoutingProvider;
 import com.example.gpsengine.security.TestSecurityHelper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,8 +23,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -37,7 +32,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -67,9 +61,6 @@ class EndToEndTripIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
-
-    @Autowired
-    private RoutingProvider routingProvider;
 
     @Autowired
     @Qualifier("rawRoutingProvider")

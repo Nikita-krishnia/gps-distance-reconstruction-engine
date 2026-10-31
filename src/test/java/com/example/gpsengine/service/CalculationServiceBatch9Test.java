@@ -16,7 +16,6 @@ import com.example.gpsengine.engine.AnchorConfig;
 import com.example.gpsengine.engine.GpsCleaningConfig;
 import com.example.gpsengine.engine.SegmentConfig;
 import com.example.gpsengine.error.ConflictException;
-import com.example.gpsengine.error.ResourceNotFoundException;
 import com.example.gpsengine.error.UnprocessableException;
 import com.example.gpsengine.routing.FakeRoutingProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,7 +23,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 

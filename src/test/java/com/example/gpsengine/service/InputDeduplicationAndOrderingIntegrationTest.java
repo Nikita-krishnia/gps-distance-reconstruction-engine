@@ -1,7 +1,6 @@
 package com.example.gpsengine.service;
 
 import com.example.gpsengine.api.dto.CalculationDto;
-import com.example.gpsengine.api.dto.TripDto;
 import com.example.gpsengine.domain.DomainFactory;
 import com.example.gpsengine.domain.GpsPing;
 import com.example.gpsengine.domain.MilestoneType;

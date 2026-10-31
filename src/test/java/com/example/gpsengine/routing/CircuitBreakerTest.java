@@ -155,7 +155,6 @@ class CircuitBreakerTest {
 
         CountDownLatch trialStarted = new CountDownLatch(1);
         CountDownLatch trialRelease = new CountDownLatch(1);
-        AtomicReference<Throwable> concurrentError = new AtomicReference<>();
 
         Thread trialThread = new Thread(() -> {
             try {

@@ -18,7 +18,6 @@ import com.example.gpsengine.engine.TripPoint;
 import com.example.gpsengine.engine.TripTimelineMerger;
 import com.example.gpsengine.routing.RoutingProvider;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -115,7 +114,7 @@ public class EnginePipeline {
                 case SHORT_GAP_AERIAL -> shortGapCount++;
                 case PARKED -> parkedCount++;
                 case ROUTED -> routedCount++;
-                case REJECTED_SPEED -> rejectedCount++;
+                case REJECTED_SPEED, REJECTED_MAX_DISTANCE -> rejectedCount++;
             }
         }
 

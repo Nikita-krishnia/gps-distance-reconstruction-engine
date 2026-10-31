@@ -1,7 +1,6 @@
 package com.example.gpsengine.service;
 
 import com.example.gpsengine.api.dto.CalculationDto;
-import com.example.gpsengine.api.dto.TripDto;
 import com.example.gpsengine.domain.BillingAdjustment;
 import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.DistanceCalculation;
@@ -36,9 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;

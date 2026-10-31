@@ -2,7 +2,6 @@ package com.example.gpsengine.benchmark;
 
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.engine.GpsPoint;
-import com.example.gpsengine.engine.HaversineCalculator;
 import com.example.gpsengine.engine.MilestoneInput;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;

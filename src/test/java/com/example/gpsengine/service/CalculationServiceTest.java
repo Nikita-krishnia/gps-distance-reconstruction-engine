@@ -2,7 +2,6 @@ package com.example.gpsengine.service;
 
 import com.example.gpsengine.api.dto.CalculationDto;
 import com.example.gpsengine.config.ConfigFingerprintService;
-import com.example.gpsengine.domain.BillingStatus;
 import com.example.gpsengine.domain.DistanceCalculation;
 import com.example.gpsengine.domain.DomainFactory;
 import com.example.gpsengine.domain.GpsPing;
@@ -15,7 +14,6 @@ import com.example.gpsengine.engine.DistanceResult;
 import com.example.gpsengine.engine.GpsCleaningConfig;
 import com.example.gpsengine.engine.SegmentConfig;
 import com.example.gpsengine.engine.SegmentResult;
-import com.example.gpsengine.error.ConflictException;
 import com.example.gpsengine.error.ResourceNotFoundException;
 import com.example.gpsengine.error.UnprocessableException;
 import com.example.gpsengine.routing.FakeRoutingProvider;
@@ -36,7 +34,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @Tag("unit")

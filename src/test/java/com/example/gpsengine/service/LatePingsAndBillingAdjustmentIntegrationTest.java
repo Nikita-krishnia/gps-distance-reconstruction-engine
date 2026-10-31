@@ -9,7 +9,6 @@ import com.example.gpsengine.domain.GpsPing;
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.Role;
 import com.example.gpsengine.domain.Trip;
-import com.example.gpsengine.domain.TripMilestone;
 import com.example.gpsengine.domain.TripSegment;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.job.DegradedTripRecomputeJob;
@@ -154,7 +153,7 @@ class LatePingsAndBillingAdjustmentIntegrationTest {
         ));
 
         // 1. Initial calculation & late ping before close
-        CalculationDto.CalculationResponse calc1 = calculationService.calculateTripDistance(tripId, TENANT);
+        calculationService.calculateTripDistance(tripId, TENANT);
         persistenceService.savePings(List.of(
                 DomainFactory.createPing(TENANT, trip, 12.9600, 77.6020, t0.plusSeconds(900), 10.0)
         ));
@@ -221,7 +220,7 @@ class LatePingsAndBillingAdjustmentIntegrationTest {
         GpsPing p1 = DomainFactory.createPing(TENANT, trip, 12.9716, 77.5946, t0.plusSeconds(300), 10.0);
         persistenceService.savePings(List.of(p1));
 
-        CalculationDto.CalculationResponse initial = calculationService.calculateTripDistance(tripId, TENANT);
+        calculationService.calculateTripDistance(tripId, TENANT);
         calculationService.closeInvoice(tripId, TENANT);
 
         // Upload exact duplicate ping

@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -68,9 +67,6 @@ class SecurityRoleMatrixTest {
 
     @MockitoBean
     private CalculationService calculationService;
-
-    @MockitoBean
-    private AuthService authService;
 
     private static final String TENANT = "tenant-alpha";
 

@@ -130,6 +130,7 @@ class DegradedModeAndRecoveryTest {
         // Recompute trip with cachingProvider: half-open probe succeeds and circuit transitions to CLOSED
         DistanceResult recovered = engine.calculate(timeline, cachingProvider, SegmentConfig.defaults());
         assertThat(recovered.status()).isEqualTo(TripStatus.CALCULATED);
+        assertThat(recovered.totalMeters()).isEqualTo(baseline.totalMeters());
         assertThat(breaker.state()).isEqualTo(CircuitBreaker.State.CLOSED);
 
         // Recompute with fresh clean cache gives exact same km

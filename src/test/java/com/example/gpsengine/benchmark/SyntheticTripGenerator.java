@@ -3,13 +3,11 @@ package com.example.gpsengine.benchmark;
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.RiderKind;
 import com.example.gpsengine.engine.GpsPoint;
-import com.example.gpsengine.engine.HaversineCalculator;
 import com.example.gpsengine.engine.MilestoneInput;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.SplittableRandom;
 

@@ -2,7 +2,6 @@ package com.example.gpsengine.engine;
 
 import com.example.gpsengine.domain.MilestoneType;
 import com.example.gpsengine.domain.RiderKind;
-import com.example.gpsengine.domain.SegmentRule;
 import com.example.gpsengine.domain.TripStatus;
 import com.example.gpsengine.routing.FakeRoutingProvider;
 import org.junit.jupiter.api.DisplayName;
