@@ -4,7 +4,7 @@ A Java backend that rebuilds the billable distance of a cab trip from noisy GPS 
 
 **Stack:** Java 21 · Spring Boot 3.5 · PostgreSQL 17 · Spring Security (JWT) · Caffeine · Micrometer · Docker Compose
 
-**Demo video:** `ADD LINK HERE`
+**Demo video:** `https://drive.google.com/drive/folders/1ZOFutejrquHpHKkVAqTx98Vto_yRPTMX?usp=drive_link`
 
 [Overview](#overview) · [Quick start](#quick-start) · [API](#api) · [How distance is calculated](#how-distance-is-calculated) · [Architecture](#architecture) · [Resilience and billing](#resilience-and-billing) · [Security](#security) · [Monitoring](#monitoring) · [Testing](#testing) · [Benchmarks](#benchmarks) · [Design decisions](#design-decisions-and-limitations) · [Documentation](#documentation)
 
