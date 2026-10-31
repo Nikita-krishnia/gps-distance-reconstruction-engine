@@ -1,0 +1,17 @@
+$kind: http-request
+url: http://localhost:8081/api/v1/trips
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"officePlannedLatitude\": 12.9750,\r
+
+    \  \"officePlannedLongitude\": 77.6500\r
+
+    }\r\n"
+auth:
+  type: bearer
+  credentials:
+    token: "{{json_web_token_0q1j}}"
+order: 4000

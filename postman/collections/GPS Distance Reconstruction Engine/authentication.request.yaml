@@ -1,0 +1,15 @@
+$kind: http-request
+url: http://localhost:8081/api/v1/auth/login
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: "{\r
+
+    \    \"username\": \"operator\",\r
+
+    \    \"password\": \"MoveInSync@2026!\"\r
+
+    }\r\n"
+order: 3000

@@ -1,0 +1,83 @@
+$kind: http-request
+url: http://localhost:8081/api/v1/trips/8/calculations
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: "{\r
+
+    \  \"milestones\": [\r
+
+    \    {\r
+
+    \      \"type\": \"TRIP_START\",\r
+
+    \      \"actualLatitude\": 12.9710,\r
+
+    \      \"actualLongitude\": 77.6410,\r
+
+    \      \"actualTime\": \"2026-10-30T08:00:00Z\"\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"type\": \"PICKUP\",\r
+
+    \      \"employeeRef\": \"emp-101\",\r
+
+    \      \"actualLatitude\": 12.9725,\r
+
+    \      \"actualLongitude\": 77.6435,\r
+
+    \      \"actualTime\": \"2026-10-30T08:05:00Z\",\r
+
+    \      \"plannedLatitude\": 12.9724,\r
+
+    \      \"plannedLongitude\": 77.6434,\r
+
+    \      \"plannedTime\": \"2026-10-30T08:04:00Z\"\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"type\": \"DROP\",\r
+
+    \      \"employeeRef\": \"emp-101\",\r
+
+    \      \"actualLatitude\": 12.9750,\r
+
+    \      \"actualLongitude\": 77.6500,\r
+
+    \      \"actualTime\": \"2026-10-30T08:20:00Z\",\r
+
+    \      \"plannedLatitude\": 12.9750,\r
+
+    \      \"plannedLongitude\": 77.6500,\r
+
+    \      \"plannedTime\": \"2026-10-30T08:18:00Z\"\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"type\": \"TRIP_END\",\r
+
+    \      \"actualLatitude\": 12.9750,\r
+
+    \      \"actualLongitude\": 77.6500,\r
+
+    \      \"actualTime\": \"2026-10-30T08:21:00Z\"\r
+
+    \    }\r
+
+    \  ]\r
+
+    }\r\n"
+auth:
+  type: bearer
+  credentials:
+    token: "{{json_web_token_0q1j}}"
+order: 7000

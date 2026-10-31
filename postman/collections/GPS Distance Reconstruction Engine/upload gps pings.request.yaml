@@ -1,0 +1,67 @@
+$kind: http-request
+url: http://localhost:8081/api/v1/trips/8/pings
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: "{\r
+
+    \  \"pings\": [\r
+
+    \    {\r
+
+    \      \"latitude\": 12.9710,\r
+
+    \      \"longitude\": 77.6410,\r
+
+    \      \"recordedAt\": \"2026-10-30T08:00:00Z\",\r
+
+    \      \"accuracyMeters\": 8.5\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"latitude\": 12.9715,\r
+
+    \      \"longitude\": 77.6418,\r
+
+    \      \"recordedAt\": \"2026-10-30T08:02:00Z\",\r
+
+    \      \"accuracyMeters\": 7.2\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"latitude\": 12.9725,\r
+
+    \      \"longitude\": 77.6435,\r
+
+    \      \"recordedAt\": \"2026-10-30T08:05:00Z\",\r
+
+    \      \"accuracyMeters\": 5.0\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"latitude\": 12.9750,\r
+
+    \      \"longitude\": 77.6500,\r
+
+    \      \"recordedAt\": \"2026-10-30T08:20:00Z\",\r
+
+    \      \"accuracyMeters\": 4.8\r
+
+    \    }\r
+
+    \  ]\r
+
+    }\r\n"
+auth:
+  type: bearer
+  credentials:
+    token: "{{json_web_token_0q1j}}"
+order: 5000
