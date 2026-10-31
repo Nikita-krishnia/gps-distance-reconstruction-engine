@@ -28,7 +28,7 @@ flowchart TD
     subgraph DomainServices ["Application & Domain Services"]
         TripSvc["TripService<br>(Ingestion & Orchestration)"]
         CalcSvc["CalculationService<br>(Fingerprinting & Idempotency)"]
-        AuthSvc["AuthService<br>(Argon2id / BCrypt & JWT)"]
+        AuthSvc["AuthService<br>(BCrypt strength 10 & JWT)"]
         PersistSvc["TripDataPersistenceService<br>(Isolated @Transactional units)"]
         RecomputeJob["DegradedTripRecomputeJob<br>(Scheduled Worker @ 30s)"]
     end
@@ -41,7 +41,7 @@ flowchart TD
     end
     
     subgraph RoutingResilience ["Routing & Resilience Tier"]
-        Router["RoutingEngine / OsmProvider<br>(HTTP OSRM Client / FakeProvider)"]
+        Router["RoutingProvider<br>(OsrmRoutingProvider / FakeRoutingProvider)"]
         Cache["Spatial Route Cache<br>(Caffeine 0.001 deg grid cells)"]
         Breaker["CircuitBreaker<br>(Sliding window, OPEN/HALF-OPEN/CLOSED)"]
     end
@@ -100,10 +100,10 @@ sequenceDiagram
     ENG-->>CS: Merged timeline & input fingerprint (SHA-256)
     CS->>RE: Reconstruct segments (from, to)
     Note over RE: External provider returns 503 / timeout.<br/>Circuit breaker trips OPEN.
-    RE-->>CS: Fallback straight-line segment (rule=HAVERSINE_STRAIGHT_LINE)
+    RE-->>CS: Fallback straight-line segment (rule=FALLBACK_AERIAL_1_4)
     CS->>DB: Save DistanceCalculation (status=DEGRADED, isCurrent=true)
-    CS->>DB: Update Trip (status=DEGRADED, distance=fallbackKm)
-    CS-->>API: 201 Created (status=DEGRADED, distanceKm=12.4)
+    CS->>DB: Update Trip (status=DEGRADED, totalKm=12.400)
+    CS-->>API: 201 Created (status=DEGRADED, totalKm=12.400, totalMeters=12400)
     API-->>Op: CalculationResponse (DEGRADED)
 
     Note over JOB,DB: Background scheduler fires every 30s
@@ -115,8 +115,8 @@ sequenceDiagram
     RE-->>CS: Road-network geometry distance (OSRM)
     CS->>DB: Save new DistanceCalculation (status=CALCULATED, isCurrent=true)
     CS->>DB: Mark old calculation isCurrent=false
-    CS->>DB: Insert BillingAdjustment (oldKm=12.4, newKm=14.1, delta=+1.7km)
-    CS->>DB: Update Trip (status=CALCULATED, distance=14.1)
+    CS->>DB: Insert BillingAdjustment (oldKm=12.400, newKm=14.100, delta=+1.700km)
+    CS->>DB: Update Trip (status=CALCULATED, totalKm=14.100)
     JOB-->>DB: Commit recompute transaction
 ```
 
@@ -126,10 +126,10 @@ sequenceDiagram
 
 | Failure Mode | System Response | Recovery Mechanism | Verified In Test |
 | :--- | :--- | :--- | :--- |
-| **Routing Provider Outage / HTTP 5xx** | Circuit breaker opens; calls immediately fallback to straight-line Haversine distance. | Calculation completes successfully with status `DEGRADED`; trip queued for recompute. | `FailureInjectionIntegrationTest#testExternalRoutingFailureTriggersCircuitBreakerAndDegradedStatus` |
+| **Routing Provider Outage / HTTP 5xx** | Circuit breaker opens; calls immediately fallback to straight-line Haversine distance multiplied by 1.4. | Calculation completes successfully with status `DEGRADED`; trip queued for recompute. | `FailureInjectionIntegrationTest#testExternalRoutingFailureTriggersCircuitBreakerAndDegradedStatus` |
 | **Concurrent Calculation Requests** | Database optimistic locking (`@Version`) and row locking prevent double-calculation. Fingerprint check returns cached calculation if fingerprint matches. | Second concurrent request receives `reused=true` (HTTP 200) or clean 409 Conflict retry. | `AdvancedConcurrencyIntegrationTest#testConcurrentRecalculationsWithIdenticalFingerprint` |
-| **Late Out-of-Order Pings Ingested** | Re-calculation triggers fingerprint recompute. Fingerprint changes $\to$ new calculation created $\to$ `BillingAdjustment` recorded. | Prior calculation marked `isCurrent=false`; audited adjustment stores exact $\Delta$ distance. | `LatePingsAndBillingAdjustmentIntegrationTest#testLatePingsTriggerBillingAdjustment` |
-| **Invoice Already Closed (`CLOSED`)** | Modification of closed trips is forbidden; recalculation and late pings rejected. | Engine returns HTTP 422 Unprocessable Entity; financial integrity guaranteed. | `LatePingsAndBillingAdjustmentIntegrationTest#testClosedInvoiceRejectsLatePingsAndRecalculation` |
+| **Late Out-of-Order Pings Ingested (Open Trip)** | Re-calculation triggers fingerprint recompute. Fingerprint changes $\to$ new calculation created. | Prior calculation marked `isCurrent=false`; trip total updated atomically. | `LatePingsAndBillingAdjustmentIntegrationTest#latePingsAndAdjustmentIntegrity` |
+| **Late Pings Ingested (Closed Invoice)** | Billed calculation remains locked and immutable. Re-calculation creates a new calculation and signed delta record. | Ledger records `BillingAdjustment` with signed `deltaMeters`; financial auditability guaranteed. | `LatePingsAndBillingAdjustmentIntegrationTest#latePingsAndAdjustmentIntegrity` |
 | **High Jitter / Teleporting GPS Glitch** | Cleaner filters pings exceeding speed threshold ($> 120$ km/h) or low accuracy ($> 50$m). | Pings dropped prior to timeline synthesis; discarded count logged in metrics. | `GpsCleanerTest#testTeleportPingsAreDropped` |
 | **Cross-Tenant Data Tampering** | All queries enforce `tenantId = :tenantId`. Mismatch throws 404 Resource Not Found. | Cross-tenant access impossible even for ADMIN users operating within a specific tenant context. | `SecurityRoleMatrixTest#crossTenantAccessIsBlocked` |
 | **Database Connection Failure** | HikariCP pool handles reconnect; Spring transaction rolls back atomically. | HTTP 500 returned with correlationId in header and body; zero partial commits. | `ActuatorSecurityAndPrivacyIntegrationTest#logsContainNoPersonalDataOrSecrets` |

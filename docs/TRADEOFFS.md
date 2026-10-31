@@ -7,18 +7,18 @@ This document articulates the engineering trade-offs made in designing the **GPS
 ## 1. Consistency vs. Availability vs. Latency (CAP & PACELC)
 
 ### A. Distance Reconstruction: Availability over Pure Consistency
-- **Decision:** When the primary routing provider (e.g. OSRM, Google Directions) experiences latency spikes or outages, the engine trips a circuit breaker and falls back to **straight-line Haversine distance**, completing the trip calculation with status `DEGRADED`.
+- **Decision:** When the primary routing provider (e.g. OSRM, Google Directions) experiences latency spikes or outages, the engine trips a circuit breaker and falls back to **straight-line Haversine distance multiplied by a 1.4 detour factor**, completing the trip calculation with status `DEGRADED`.
 - **Trade-off:**
   - *Gained:* High availability and predictable sub-second response times. Client apps, driver checkout flows, and operational dashboards never hang or encounter 503 errors during upstream provider outages.
   - *Compromised:* Immediate road-network geometric precision. Degraded trips report straight-line distance temporarily until the provider recovers and the background recompute worker recalculates the actual route.
 - **Remediation:** Eventual consistency is guaranteed by `DegradedTripRecomputeJob`, which continually recovers degraded trips once the circuit breaker re-closes.
 
-### B. Billing & Invoicing: Strict Consistency over Availability
-- **Decision:** Once an invoice is closed (`CLOSED`), the trip is mathematically immutable. Any subsequent attempt to recalculate, add late pings, or record billing adjustments is rejected with HTTP 422 Unprocessable Entity.
+### B. Billing & Invoicing: Strict Consistency over Ingestion Mutability
+- **Decision:** Once an invoice is closed (`CLOSED`), the originally billed calculation row and distance are mathematically immutable. Any subsequent calculation triggered by late-arriving GPS pings or degraded route recovery is preserved as a new `DistanceCalculation` and recorded in an append-only `BillingAdjustment` ledger with a signed delta (e.g. `+1.800 km`). The original billed amount is never silently overwritten.
 - **Trade-off:**
-  - *Gained:* Financial auditability, zero billing discrepancies, and strict compliance with billing ledger rules.
-  - *Compromised:* Ingestion flexibility. Drivers or GPS units sending late data for a closed billing cycle cannot alter that invoice.
-- **Justification:** In enterprise transportation billing, financial finality takes precedence over accommodating late telemetry.
+  - *Gained:* Financial auditability, non-destructive ledgering, zero silent billing discrepancies, and strict compliance with accounting ledger standards.
+  - *Compromised:* Downstream payroll and vendor disbursement pipelines must query the `BillingAdjustment` ledger (`GET /api/v1/trips/{id}/billing-adjustments`) to process secondary settlements.
+- **Justification:** In enterprise transportation billing, financial finality and immutable audit logs take precedence over in-place record mutations.
 
 ---
 

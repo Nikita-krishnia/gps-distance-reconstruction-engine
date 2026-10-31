@@ -58,12 +58,12 @@ Executes upstream provider dropouts, circuit breaker trip and recovery, cache po
 - **Measured Runtime (this machine):** 43.3 s
 
 ### 5. Run Full Test Suite
-Runs all 38 test classes and 222 automated tests.
+Runs all 43 test classes and 243 automated tests.
 ```powershell
 .\mvnw.cmd test
 ```
 - **Docker Needed:** Yes
-- **Expected Result:** Tests run: 222, Failures: 0, Errors: 0, Skipped: 1
+- **Expected Result:** Tests run: 242, Failures: 0, Errors: 0, Skipped: 1
 - **Measured Runtime (this machine):** 2 min 17 s
 
 ---
@@ -85,7 +85,7 @@ To maintain clarity and test honesty, the following areas are deliberately exclu
 
 ## Test Verification Artifacts
 
-- Traceability Matrix: [`docs/REQUIREMENTS_TRACEABILITY.md`](file:///c:/Users/krish/OneDrive/Desktop/projects/MoveInSync/gps-distance-reconstruction-engine/docs/REQUIREMENTS_TRACEABILITY.md)
+- Traceability Matrix: [REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md)
 - Randomized Invariant Test: [`RandomizedTripInvariantTest`](file:///src/test/java/com/example/gpsengine/engine/RandomizedTripInvariantTest.java) (200 random seeds across 9 physical invariants)
 - Failure Injection Suite: [`ComprehensiveFailureInjectionIntegrationTest`](file:///src/test/java/com/example/gpsengine/service/ComprehensiveFailureInjectionIntegrationTest.java)
 - Concurrency Suite: [`AdvancedConcurrencyIntegrationTest`](file:///src/test/java/com/example/gpsengine/service/AdvancedConcurrencyIntegrationTest.java)

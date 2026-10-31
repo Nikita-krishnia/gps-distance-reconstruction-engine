@@ -1,6 +1,6 @@
 # GPS Reconstruction Engine - Performance & Scalability Analysis
 
-This document provides a detailed engineering analysis of the performance characteristics, theoretical complexity, resource utilization, and scaling boundaries of the GPS Distance Reconstruction Engine.
+This document provides a detailed engineering analysis of the performance characteristics, theoretical complexity, resource utilization, empirical benchmark measurements, and reproduction instructions for the GPS Distance Reconstruction Engine.
 
 ---
 
@@ -42,7 +42,7 @@ The core pipeline processes a trip of $N$ raw GPS pings and $M$ milestone events
 
 - **Streaming Architecture:** The pipeline processes each trip in a streaming fashion. The trip generator and calculation engine materialize only the currently evaluated trip in memory, allowing previously processed trip objects to be promptly collected in Eden space.
 - **Heap Footprint:** Under an active workload of 10,000 trips with ~1,500 pings each (15 million total raw coordinates), peak heap usage remains well below 250 MB.
-- **GC Overhead:** The majority of objects are short-lived (`GpsPoint`, `TripPoint`), which are efficiently collected during minor Young Generation GC cycles without triggering major stop-the-world Full GCs.
+- **GC Overhead:** The majority of objects are short-lived (`GpsPoint`, `TripPoint`), which are efficiently collected during minor Young Generation GC cycles without triggering major stop-the-world Full GCs (< 1% total wall time spent in GC).
 
 ---
 
@@ -63,7 +63,7 @@ To provide actionable architectural insights, bottlenecks are explicitly categor
 ### B. REASONED Bottlenecks (Production & Scale Boundaries)
 1. **External Routing Provider Round-Trips:**
    - *Analysis:* In production with external OSRM / Google Maps API calls, uncached network queries incur 20–50 ms round-trip latency per missing route segment.
-   - *Mitigation:* The two-tier `CachingRoutingProvider` (snapping coordinates to ~111 m grid cells) achieves >90% cache hit rates on urban commuter corridors, reducing routing latency to sub-microsecond in-memory lookups.
+   - *Mitigation:* The two-tier `CachingRoutingProvider` (snapping coordinates to ~111 m grid cells) achieves high cache hit rates on urban commuter corridors, reducing routing latency to sub-microsecond in-memory lookups.
 2. **PostgreSQL Ping Table Growth:**
    - *Analysis:* At 100,000 trips/day with 1,500 pings each, `gps_pings` table accumulates 150 million rows daily (~15 GB storage daily).
    - *Mitigation:* Production databases should partition `gps_pings` by `tenant_id` and range-partition by `timestamp` (daily or monthly), with a retention policy archiving raw pings once invoices are finalized.
@@ -82,7 +82,7 @@ All numbers below were directly captured from the benchmark suite execution in `
 - **Determinism Checksums:**
   - `checksum(A2) == checksum(A3)` = `78719cc532df1c3f80286d3e3e40dafff8b36c0c65667d9bd3cf2ba190417275` (100% deterministic concurrency)
   - `checksum(A1) == checksum(A4)` = `12035b3ca096a49f81174e3826be848a0093a7c2143406493eae2a76a5b08b19` (100% deterministic concurrency)
-- **Accuracy Cost of Caching:** 0.0102% difference between exact coordinates and cell-center snapped routes.
+- **Accuracy Cost of Caching:** 0.0102% difference between exact coordinates and cell-center snapped routes (within 0.1% bound).
 - **Failure Recovery (A7):** 4,281 degraded trips recovered via recompute; recovered output checksum matches clean run baseline 100%.
 
 ### B. Level B (End-to-End System over HTTP & PostgreSQL)
@@ -95,3 +95,40 @@ All numbers below were directly captured from the benchmark suite execution in `
   - Calculate Distance (`POST /trips/{id}/calculations`): p50 = 323.56 ms, p95 = 606.58 ms, p99 = 800.41 ms
   - Get Trip Details (`GET /trips/{id}`): p50 = 19.66 ms, p95 = 39.04 ms, p99 = 55.49 ms
   - Get Audit Segments (`GET /trips/{id}/calculations/{calcId}/segments`): p50 = 22.97 ms, p95 = 42.44 ms, p99 = 64.01 ms
+
+---
+
+## 6. How to Reproduce & Run Benchmarks
+
+### Configuration & Environment Variables
+
+| Variable | Default Value | Description |
+| :--- | :---: | :--- |
+| `RUN_BENCHMARK` | `false` | Gatekeeper flag. Must be set to `true` to activate heavy benchmarks. |
+| `BENCH_TRIPS` | `10000` | Number of trips evaluated per Level A scenario. |
+| `BENCH_PINGS` | `1500` | Average raw GPS pings generated per trip (~1 ping per 2-5 seconds). |
+| `BENCH_THREADS` | Available Cores | Worker thread count for concurrent scenarios (A3, A4). |
+| `BENCH_PLACES` | `150` | Number of destination coordinates in the synthetic urban world model. |
+| `BENCH_REPEATS` | `3` | Iteration repeat count for stability verification. |
+| `BENCH_E2E_TRIPS` | `200` | Total complete trips processed in Level B REST benchmark. |
+| `BENCH_E2E_THREADS` | `4` | Concurrent HTTP client threads in Level B benchmark. |
+| `BENCH_SIM_LATENCY_MS` | `20` | Simulated upstream routing provider latency in Scenario A8. |
+| `BENCH_SEED` | `42` | Pseudorandom seed ensuring 100% reproducible synthetic generation. |
+
+### Execution Commands (Windows PowerShell)
+
+```powershell
+# 1. Fast Regression Guard (runs automatically during standard unit tests)
+.\mvnw.cmd test "-Dtest=BenchmarkRegressionGuardTest"
+
+# 2. Run Level A Engine Benchmark (Plain-Java Core, Scenarios A1-A8)
+$env:RUN_BENCHMARK="true"; .\mvnw.cmd test "-Dtest=EngineBenchmark"
+
+# 3. Run Level A with Memory Constraints (-Xmx512m)
+$env:RUN_BENCHMARK="true"; .\mvnw.cmd test "-Dtest=EngineBenchmark" "-DargLine=-Xmx512m"
+
+# 4. Run Level B End-to-End System Benchmark (REST + PostgreSQL via Testcontainers)
+$env:RUN_BENCHMARK="true"; .\mvnw.cmd test "-Dtest=EndToEndBenchmark"
+```
+
+Results are saved to `docs/benchmarks/results-latest.md`.
