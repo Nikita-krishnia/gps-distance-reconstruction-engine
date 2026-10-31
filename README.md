@@ -351,9 +351,7 @@ Where the system stops scaling, theoretical limits, and how to reproduce are in 
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture diagram, sequence diagram, failure-mode table, data model |
 | [docs/TRADEOFFS.md](docs/TRADEOFFS.md) | Consistency vs availability vs latency, what was left out |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to check at 3 AM |
 | [docs/TESTING.md](docs/TESTING.md) | How to run each test group |
 | [docs/REQUIREMENTS_TRACEABILITY.md](docs/REQUIREMENTS_TRACEABILITY.md) | Every rule and evaluative plus point mapped to tests |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Complexity, empirical benchmarks, and reproduction instructions |
-| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Demo video walkthrough script and code presentation highlights |
 | [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) | Original assessment brief and problem specification |
