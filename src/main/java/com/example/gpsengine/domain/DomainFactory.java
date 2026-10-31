@@ -1,7 +1,6 @@
 package com.example.gpsengine.domain;
 
 import java.time.Instant;
-import java.util.Objects;
 
 /**
  * Factory helper for clean and safe domain entity instantiation matching

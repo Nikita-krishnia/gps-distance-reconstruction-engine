@@ -77,6 +77,10 @@ public class RoutingConfiguration {
         }
     }
 
+    public boolean isCacheEnabled() {
+        return cacheEnabled;
+    }
+
     @Bean
     @ConditionalOnMissingBean(Clock.class)
     public Clock routingClock() {

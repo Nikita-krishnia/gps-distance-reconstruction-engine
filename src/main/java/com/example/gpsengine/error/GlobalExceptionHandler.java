@@ -27,7 +27,6 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -168,7 +167,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleHandlerMethodValidation(HandlerMethodValidationException ex, HttpServletRequest request) {
         String correlationId = CorrelationIdFilter.getCorrelationId(request);
         List<ErrorResponse.FieldErrorDetail> fieldErrors = new ArrayList<>();
-        ex.getAllValidationResults().forEach(vr -> {
+        ex.getValueResults().forEach(vr -> {
             String paramName = vr.getMethodParameter().getParameterName();
             vr.getResolvableErrors().forEach(re -> {
                 fieldErrors.add(new ErrorResponse.FieldErrorDetail(paramName != null ? paramName : "parameter", re.getDefaultMessage()));

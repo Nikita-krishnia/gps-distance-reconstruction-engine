@@ -360,5 +360,13 @@ public class GpsMetrics {
     public long getDbSnapshotQueryCount() {
         return dbSnapshotQueryCount.get();
     }
+
+    public RoutingStats getRoutingStats() {
+        return routingStats;
+    }
+
+    public CircuitBreaker getCircuitBreaker() {
+        return circuitBreaker;
+    }
 }
 
