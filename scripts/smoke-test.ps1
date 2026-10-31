@@ -67,7 +67,17 @@ Print-Header
 # ------------------------------------------------------------------------------
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 try {
-    $health = Invoke-RestMethod -Uri "$BaseUrl/actuator/health" -Method Get -TimeoutSec 10
+    # If the service was just restarted, poll up to 15s for Tomcat to report UP
+    $retries = 10
+    $health = $null
+    while ($retries -gt 0 -and $null -eq $health) {
+        try {
+            $health = Invoke-RestMethod -Uri "$BaseUrl/actuator/health" -Method Get -TimeoutSec 3
+        } catch {
+            $retries--
+            if ($retries -gt 0) { Start-Sleep -Milliseconds 1500 } else { throw }
+        }
+    }
     $sw.Stop()
     if ($health.status -eq "UP") {
         Print-Pass 1 "Healthcheck" $sw.ElapsedMilliseconds "Service status is UP (no component details exposed)"
@@ -257,8 +267,10 @@ try {
 
     if ($FaultInjected) {
         # Create second trip on novel corridor
+        # Use dynamic coordinate offset to guarantee an uncached novel corridor on every run
+        $latOffset = [math]::Round(((($TripId + 1) % 50) * 0.005), 4)
         $createTrip2Body = @{
-            officePlannedLatitude = 13.0700
+            officePlannedLatitude = [math]::Round(13.0700 + $latOffset, 4)
             officePlannedLongitude = 77.6000
         } | ConvertTo-Json
 
@@ -276,17 +288,27 @@ try {
         $msTrip2Path = Join-Path $PSScriptRoot "..\docs\samples\upload-milestones-trip2.json"
         if (-not (Test-Path $msTrip2Path)) { $msTrip2Path = "docs/samples/upload-milestones-trip2.json" }
 
+        $pingsJson = Get-Content -Raw $pingsTrip2Path | ConvertFrom-Json
+        foreach ($p in $pingsJson.pings) {
+            $p.latitude = [math]::Round($p.latitude + $latOffset, 4)
+        }
+        $msJson = Get-Content -Raw $msTrip2Path | ConvertFrom-Json
+        foreach ($m in $msJson.milestones) {
+            if ($m.actualLatitude) { $m.actualLatitude = [math]::Round($m.actualLatitude + $latOffset, 4) }
+            if ($m.plannedLatitude) { $m.plannedLatitude = [math]::Round($m.plannedLatitude + $latOffset, 4) }
+        }
+
         Invoke-RestMethod -Uri "$BaseUrl/api/v1/trips/$Trip2Id/pings" `
             -Method Post `
             -Headers $OperatorHeaders `
-            -Body (Get-Content -Raw $pingsTrip2Path) `
+            -Body ($pingsJson | ConvertTo-Json -Depth 5) `
             -ContentType "application/json" `
             -TimeoutSec 10 | Out-Null
 
         Invoke-RestMethod -Uri "$BaseUrl/api/v1/trips/$Trip2Id/milestones" `
             -Method Post `
             -Headers $OperatorHeaders `
-            -Body (Get-Content -Raw $msTrip2Path) `
+            -Body ($msJson | ConvertTo-Json -Depth 5) `
             -ContentType "application/json" `
             -TimeoutSec 10 | Out-Null
 
