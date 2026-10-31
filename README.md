@@ -97,24 +97,34 @@ docker compose up --build -d
 
 ### Step 3: Or Test Manually with Sample Payloads
 ```powershell
+$BaseUrl = "http://localhost:8081"
+
 # 1. Login as Operator
-$token = (Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auth/login" `
-  -Method Post -Body (@{username="operator"; password="MoveInSync@2026!"}|ConvertTo-Json) `
-  -ContentType "application/json").token
+$auth = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" `
+  -Method Post `
+  -Body (@{ username = "operator"; password = "MoveInSync@2026!" } | ConvertTo-Json) `
+  -ContentType "application/json"
+$token = $auth.accessToken
 
 # 2. Create Trip
-$trip = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/trips" `
-  -Method Post -Headers @{Authorization="Bearer $token"} `
-  -Body (Get-Content -Raw "docs/samples/create-trip.json") -ContentType "application/json"
+$trip = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trips" `
+  -Method Post `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -Body (Get-Content -Raw "docs/samples/create-trip.json") `
+  -ContentType "application/json"
 
 # 3. Upload Milestones and Calculate Distance
-Invoke-RestMethod -Uri "http://localhost:8080/api/v1/trips/$($trip.id)/milestones" `
-  -Method Post -Headers @{Authorization="Bearer $token"} `
-  -Body (Get-Content -Raw "docs/samples/upload-milestones.json") -ContentType "application/json"
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/trips/$($trip.id)/milestones" `
+  -Method Post `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -Body (Get-Content -Raw "docs/samples/upload-milestones.json") `
+  -ContentType "application/json"
 
-$calc = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/trips/$($trip.id)/calculations" `
-  -Method Post -Headers @{Authorization="Bearer $token"}
-Write-Host "Reconstructed Distance: $($calc.distanceKm) km ($($calc.distanceMeters) meters)"
+$calc = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trips/$($trip.id)/calculations" `
+  -Method Post `
+  -Headers @{ Authorization = "Bearer $token" }
+
+Write-Host "Reconstructed Distance: $($calc.totalKm) km ($($calc.totalMeters) meters)"
 ```
 
 ---
@@ -159,13 +169,13 @@ See the complete runbook in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 ### Top 3 Triage Commands for On-Call Engineers:
 ```bash
 # 1. Inspect Circuit Breaker State (0 = CLOSED, 1 = HALF-OPEN, 2 = OPEN)
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/actuator/metrics/gps.routing.breaker.state | jq .
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8081/actuator/metrics/gps.routing.breaker.state | jq .
 
 # 2. Check Degraded Trip Backlog
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/actuator/metrics/gps.degraded.trips | jq .
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8081/actuator/metrics/gps.degraded.trips | jq .
 
 # 3. Check Route Cache Hit Ratio
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8080/actuator/metrics/gps.routing.cache?tag=result:hit" | jq .
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8081/actuator/metrics/gps.routing.cache?tag=result:hit" | jq .
 ```
 
 ---
@@ -173,29 +183,46 @@ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8080/actuator/
 ## 6. Security & Privacy Invariants
 
 - **Zero Coordinate & Secret Leaks:** Raw latitudes, longitudes, employee handles, passwords, and tokens are redacted from all log statements, DTO `toString()` representations, and Micrometer metric tags.
-- **Argon2id Password Hashing:** User passwords hashed using memory-hard Argon2id with automatic BCrypt fallback.
-- **Tenant Isolation:** Complete row-level isolation enforced via `tenant_id` filtering on all database queries. Cross-tenant queries return HTTP 404.
-- **Non-Root Container:** Alpine container runs as dedicated unprivileged user `spring:spring` (UID 10001).
+- **BCrypt Password Hashing:** User credentials are secure using Spring Security's `BCryptPasswordEncoder` with strength 10 and constant-time password comparison to prevent timing attacks.
+- **Tenant Isolation:** Hard row-level multi-tenant isolation enforced via mandatory `tenant_id` filtering on all database queries. Cross-tenant queries return HTTP 404 Not Found to prevent tenant enumeration.
+- **Role-Based Access Control:** Strict separation between `OPERATOR` (trip lifecycle, milestone ingestion, calculation) and `ADMIN` (billing adjustments, invoice closing, fault injection, actuator metrics).
+- **Non-Root Container:** Production Alpine container executes under a dedicated unprivileged user `spring:spring` (UID 10001).
 
 ---
 
 ## 7. Testing Suite Summary
 
-- **Total Automated Tests:** **243 tests** across 38 test classes (100% passing).
-- **Unit Tests:** 116 tests (pure Java, zero-dependency, run in $< 2$s).
-- **Integration Tests:** 106 tests (PostgreSQL Testcontainers, full Spring security filter chain).
-- **Failure Injection Tests:** 9 tests (simulated circuit breaker trips, network timeouts, cache poisoning).
-- **Concurrency Tests:** 4 tests (50-thread cache stampede, 20-thread simultaneous calculation races).
+- **Total Automated Tests:** **243 tests** across 38 test classes (100% passing, 0 failures, 0 errors, 1 skipped).
+- **Unit Tests:** 116 tests (pure Java, zero-dependency, run in < 2 seconds).
+- **Integration Tests:** 106 tests (PostgreSQL Testcontainers, Spring Security filter chain, full persistence).
+- **Failure Injection Tests:** 9 tests (circuit breaker state transitions, provider timeouts, transient error rollback).
+- **Concurrency Tests:** 4 tests (50-thread cache stampede, 20-thread simultaneous calculation races, latch synchronization).
+- **Zero Compiler Warnings:** Codebase compiles cleanly with 0 IDE warnings, zero dead imports, and modern Spring Boot 3.4 test overrides (`@MockitoBean`, `@MockitoSpyBean`).
 
 ---
 
-## 8. Documentation Index
+## 8. Postman Collection & Demo Toolkit
 
+A complete, pre-configured Postman collection is committed directly to [`postman/`](postman/) alongside the local workspace configuration in [`.postman/`](.postman/):
+- **Health Check:** `GET /actuator/health`
+- **Authentication:** `POST /api/v1/auth/login` (seeds default operator token)
+- **Create Trip:** `POST /api/v1/trips`
+- **Upload GPS Pings:** `POST /api/v1/trips/{id}/pings`
+- **Upload Milestones:** `POST /api/v1/trips/{id}/milestones`
+- **Calculate Distance:** `POST /api/v1/trips/{id}/calculations`
+
+All requests use collection variables for authorization tokens (`{{json_web_token}}`), ensuring zero hardcoded secrets.
+
+---
+
+## 9. Documentation Index
+
+- [`docs/CODE_DOCUMENTATION.md`](docs/CODE_DOCUMENTATION.md) — Comprehensive technical architecture, domain models, pipeline math, and operational manual.
 - [`docs/DESIGN.md`](docs/DESIGN.md) — Architectural diagrams, hard-flow sequence, failure matrix, data model.
 - [`docs/TRADEOFFS.md`](docs/TRADEOFFS.md) — Consistency vs. availability, in-memory vs. distributed caching.
-- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — What to check at 3 AM incident triage and playbooks.
-- [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — 5-7 minute video demo walkthrough script.
-- [`docs/SUBMISSION_CHECKLIST.md`](docs/SUBMISSION_CHECKLIST.md) — Itemized checklist of core rules, advanced track, and 8 plus points.
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — Production incident triage, alerting rules, and operational playbooks.
+- [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — Structured video demo walkthrough script and screen layout guide.
+- [`docs/SUBMISSION_CHECKLIST.md`](docs/SUBMISSION_CHECKLIST.md) — Itemized checklist covering core rules, advanced track, and 8 plus points.
 - [`docs/REQUIREMENTS_TRACEABILITY.md`](docs/REQUIREMENTS_TRACEABILITY.md) — Formal requirement traceability matrix.
-- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — Empirical performance analysis and scaling curves.
-- [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) — Benchmark execution methodology and replication instructions.
+- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — Empirical performance analysis, GC allocation curves, and scale limits.
+- [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) — Benchmark execution methodology, JDK bean measurement, and replication instructions.
